@@ -77,20 +77,20 @@
         <mxCell id="rKD6LL7eQiW8871ztSu--38" value="Tenor Variation&amp;nbsp;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#647687;fontColor=#ffffff;strokeColor=#314354;" parent="1" vertex="1">
           <mxGeometry x="456" y="52" width="120" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="rKD6LL7eQiW8871ztSu--40" value="Last Updated : 27/02" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+        <mxCell id="rKD6LL7eQiW8871ztSu--40" value="Last Updated : 03/03" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
           <mxGeometry x="358" y="-155" width="170" height="60" as="geometry" />
         </mxCell>
         <mxCell id="rKD6LL7eQiW8871ztSu--41" value="Dynamic Pricing&amp;nbsp;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#647687;fontColor=#ffffff;strokeColor=#314354;" parent="1" vertex="1">
           <mxGeometry x="651" y="-40.5" width="120" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="Y7sS1COkAObIBIgLkpht-2" style="edgeStyle=none;curved=1;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;fontSize=12;startSize=8;endSize=8;" edge="1" parent="1" source="rKD6LL7eQiW8871ztSu--45" target="Y7sS1COkAObIBIgLkpht-1">
+        <mxCell id="Y7sS1COkAObIBIgLkpht-2" style="edgeStyle=none;curved=1;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;fontSize=12;startSize=8;endSize=8;" parent="1" source="rKD6LL7eQiW8871ztSu--45" target="Y7sS1COkAObIBIgLkpht-1" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="rKD6LL7eQiW8871ztSu--45" value="Other PPA structures?" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#647687;fontColor=#ffffff;strokeColor=#314354;" parent="1" vertex="1">
           <mxGeometry x="607" y="319" width="120" height="60" as="geometry" />
         </mxCell>
         <mxCell id="rKD6LL7eQiW8871ztSu--46" value="Investigation of Nash Equllibrium with Multiple Participants" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#647687;fontColor=#ffffff;strokeColor=#314354;" parent="1" vertex="1">
-          <mxGeometry x="607" y="401" width="120" height="60" as="geometry" />
+          <mxGeometry x="-38" y="416" width="120" height="60" as="geometry" />
         </mxCell>
         <mxCell id="rKD6LL7eQiW8871ztSu--47" value="Investigation of Asymmetry of Info (Baseload)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#76608a;fontColor=#ffffff;strokeColor=#432D57;" parent="1" vertex="1">
           <mxGeometry x="-38" y="255" width="120" height="60" as="geometry" />
@@ -113,23 +113,44 @@
         <mxCell id="rKD6LL7eQiW8871ztSu--61" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;" parent="1" vertex="1">
           <mxGeometry x="-263" y="124" width="209" height="201" as="geometry" />
         </mxCell>
-        <mxCell id="Y7sS1COkAObIBIgLkpht-1" value="Deriving Proofs of different structures like the CFD&amp;nbsp;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#647687;fontColor=#ffffff;strokeColor=#314354;" vertex="1" parent="1">
+        <mxCell id="Y7sS1COkAObIBIgLkpht-1" value="Deriving Proofs of different structures like the CFD&amp;nbsp;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#647687;fontColor=#ffffff;strokeColor=#314354;" parent="1" vertex="1">
           <mxGeometry x="744" y="319" width="120" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="Y7sS1COkAObIBIgLkpht-3" value="New Load Profile?" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#647687;fontColor=#ffffff;strokeColor=#314354;" vertex="1" parent="1">
+        <mxCell id="Y7sS1COkAObIBIgLkpht-3" value="New Load Profile?" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#647687;fontColor=#ffffff;strokeColor=#314354;" parent="1" vertex="1">
           <mxGeometry x="293" y="37" width="120" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="Y7sS1COkAObIBIgLkpht-4" value="Stochastic Production" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#76608a;fontColor=#ffffff;strokeColor=#432D57;" vertex="1" parent="1">
+        <mxCell id="Y7sS1COkAObIBIgLkpht-4" value="Stochastic Production" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#76608a;fontColor=#ffffff;strokeColor=#432D57;" parent="1" vertex="1">
           <mxGeometry x="613" y="495" width="120" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="Y7sS1COkAObIBIgLkpht-5" value="Capacity" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#76608a;fontColor=#ffffff;strokeColor=#432D57;" vertex="1" parent="1">
+        <mxCell id="Y7sS1COkAObIBIgLkpht-5" value="Capacity" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#76608a;fontColor=#ffffff;strokeColor=#432D57;" parent="1" vertex="1">
           <mxGeometry x="548" y="562" width="120" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="Y7sS1COkAObIBIgLkpht-6" value="Location" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#76608a;fontColor=#ffffff;strokeColor=#432D57;" vertex="1" parent="1">
+        <mxCell id="Y7sS1COkAObIBIgLkpht-6" value="Location" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#76608a;fontColor=#ffffff;strokeColor=#432D57;" parent="1" vertex="1">
           <mxGeometry x="678" y="562" width="120" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="Y7sS1COkAObIBIgLkpht-7" value="Method of Generation" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#76608a;fontColor=#ffffff;strokeColor=#432D57;" vertex="1" parent="1">
+        <mxCell id="Y7sS1COkAObIBIgLkpht-7" value="Method of Generation" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#76608a;fontColor=#ffffff;strokeColor=#432D57;" parent="1" vertex="1">
           <mxGeometry x="548" y="633" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tB2WvUKI93JjlL_zfi1k-7" value="" style="edgeStyle=none;curved=1;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=12;startSize=8;endSize=8;" edge="1" parent="1" source="tB2WvUKI93JjlL_zfi1k-1" target="tB2WvUKI93JjlL_zfi1k-5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="tB2WvUKI93JjlL_zfi1k-1" value="Simply add &#39;x&#39; particpants and their utlity functions to the Objective value?&amp;nbsp;" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-158" y="493" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tB2WvUKI93JjlL_zfi1k-4" value="" style="edgeStyle=none;curved=1;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=12;startSize=8;endSize=8;" edge="1" parent="1" source="tB2WvUKI93JjlL_zfi1k-2" target="tB2WvUKI93JjlL_zfi1k-3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="tB2WvUKI93JjlL_zfi1k-2" value="Research &#39;Multi-participant&#39; theory&amp;nbsp;" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-25" y="493" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tB2WvUKI93JjlL_zfi1k-6" style="edgeStyle=none;curved=1;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;fontSize=12;startSize=8;endSize=8;" edge="1" parent="1" source="tB2WvUKI93JjlL_zfi1k-3" target="tB2WvUKI93JjlL_zfi1k-5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="tB2WvUKI93JjlL_zfi1k-3" value="Implement" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-25" y="578" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tB2WvUKI93JjlL_zfi1k-5" value="Compare models?&amp;nbsp;&lt;br&gt;Same outcome?&amp;nbsp;&lt;div&gt;&lt;br/&gt;&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-158" y="578" width="120" height="60" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
