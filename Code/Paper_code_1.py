@@ -1,71 +1,76 @@
 import numpy as np
-import scipy.optimize as opt
+from scipy.optimize import minimize
+from scipy.stats import norm
 
-def cvar(losses, alpha=0.95):
-    """ Compute Conditional Value-at-Risk (CVaR) """
-    var = np.percentile(losses, (1 - alpha) * 100)
-    cvar = losses[losses >= var].mean()
-    return cvar
+# Parameters (example values)
+A_G = 1.0  # GenCo's risk-aversion factor
+A_L = 1.0  # LSE's risk-aversion factor
+zeta_1 = 100  # Threat point utility for GenCo
+zeta_2 = 150  # Threat point utility for LSE
+mu_lambda = 500  # Mean of lambda (sum of LMPs over contract period)
+sigma_lambda = 50  # Standard deviation of lambda
+T = 24  # Contract period (hours)
+alpha = 0.95  # Confidence level for CVaR
+M_lower = 0  # Lower bound for contract amount
+M_upper = 600  # Upper bound for contract amount
+S_lower = 15  # Lower bound for strike price
+S_upper = 25  # Upper bound for strike price
 
-def utility(expected_earnings, risk_aversion, cvar):
-    """ Return-risk utility function """
-    return expected_earnings - risk_aversion * cvar
+# Expected net earnings from the day-ahead market (example values)
+E_G_pi_G_lambda = 1000  # GenCo's expected net earnings
+E_L_pi_L_0 = 1200  # LSE's expected net earnings
 
-def nash_bargaining(q, p, expected_genco, expected_lse, risk_aversion_genco, risk_aversion_lse, cvar_genco, cvar_lse, q_bounds, p_bounds):
-    """ Nash bargaining solution """
-    def objective(x):
-        q, p = x
-        u_genco = utility(expected_genco(q, p), risk_aversion_genco, cvar_genco(q, p))
-        u_lse = utility(expected_lse(q, p), risk_aversion_lse, cvar_lse(q, p))
-        return -(u_genco - u_genco_no_contract) * (u_lse - u_lse_no_contract)  # Nash product
-    
-    bounds = [q_bounds, p_bounds]
-    result = opt.minimize(objective, x0=[(q_bounds[0] + q_bounds[1]) / 2, (p_bounds[0] + p_bounds[1]) / 2], bounds=bounds)
-    return result.x if result.success else None
+# CVaR calculation for a normal distribution
+def calculate_cvar(mean, std, alpha):
+    """Calculate CVaR for a normal distribution."""
+    phi_alpha = norm.pdf(norm.ppf(alpha))  # PDF of standard normal at alpha quantile
+    return mean + std * (phi_alpha / (1 - alpha))
 
-# Example definitions of earnings and CVaR for GenCo and LSE
-def expected_genco(q, p):
-    return q * (p - 30)  # Example: selling electricity at strike price minus cost
+# Objective function
+def objective_function(x):
+    """Objective function to maximize (u_G - zeta_1) * (u_L - zeta_2)."""
+    M, S = x  # Unpack decision variables
 
-def expected_lse(q, p):
-    return q * (50 - p)  # Example: buying electricity at strike price lower than retail price
+    # Expected earnings
+    E_G = E_G_pi_G_lambda + (T * S - mu_lambda) * M
+    E_L = E_L_pi_L_0 + (mu_lambda - T * S) * M
 
-def cvar_genco(q, p):
-    losses = np.random.normal(5, 2, 1000) * q  # Example loss distribution
-    return cvar(losses)
+    # CVaR calculations
+    CVaR_G = calculate_cvar(E_G_pi_G_lambda, sigma_lambda, alpha) + (T * S - mu_lambda) * M
+    CVaR_L = calculate_cvar(E_L_pi_L_0, sigma_lambda, alpha) + (mu_lambda - T * S) * M
 
-def cvar_lse(q, p):
-    losses = np.random.normal(4, 1.5, 1000) * q  # Example loss distribution
-    return cvar(losses)
+    # Utility functions
+    u_G = E_G - A_G * CVaR_G
+    u_L = E_L - A_L * CVaR_L
 
-# Load profile with variability (MW per hour for a 24-hour period)
-base_load_profile = np.array([300, 280, 270, 260, 250, 240, 230, 250, 300, 350, 400, 420, 
-                              430, 420, 410, 400, 390, 380, 370, 360, 350, 340, 320, 310])
-load_variability = np.random.normal(0, 30, (1000, 24))  # Variability in load
-load_scenarios = base_load_profile + load_variability
-load_scenarios = np.clip(load_scenarios, 200, 500)  # Ensuring reasonable limits
+    # Objective: maximize (u_G - zeta_1) * (u_L - zeta_2)
+    return -(u_G - zeta_1) * (u_L - zeta_2)  # Negative for minimization
 
-# No contract utility levels
-u_genco_no_contract = 0  # Assume GenCo has 0 net earnings without contract
-u_lse_no_contract = 0    # Assume LSE has 0 net earnings without contract
+# Bounds for M and S
+bounds = [(M_lower, M_upper), (S_lower, S_upper)]
 
-# Risk aversion factors
-risk_aversion_genco = 1.0
-risk_aversion_lse = 1.5
+# Initial guess for M and S
+initial_guess = [300, 20]  # Example initial guess
 
-# Monte Carlo simulation to determine optimal contract parameters
-q_samples = []
-p_samples = []
-for i in range(1000):
-    q_opt, p_opt = nash_bargaining(q_samples, p_samples, expected_genco, expected_lse, risk_aversion_genco, risk_aversion_lse, cvar_genco, cvar_lse, q_samples, p_samples)
-    q_samples.append(q_opt)
-    p_samples.append(p_opt)
+# Constraints (if any)
+# For example, you could add constraints on M and S here if needed
+constraints = []  # No additional constraints in this example
 
-q_final = np.mean(q_samples)
-p_final = np.mean(p_samples)
+# Optimize using scipy.optimize.minimize
+result = minimize(
+    objective_function,
+    initial_guess,
+    bounds=bounds,
+    constraints=constraints,
+    method='SLSQP'  # Sequential Least Squares Programming
+)
 
-print(f"Optimal contract quantity (Monte Carlo): {q_final} MW, Optimal strike price: ${p_final}/MWh")
-
-# Adjust contract based on load profile
-contracted_power = np.minimum(base_load_profile, q_final)
-print(f"Adjusted contract quantities based on load profile: {contracted_power}")
+# Output the results
+if result.success:
+    optimal_M, optimal_S = result.x
+    max_objective_value = -result.fun  # Negate to get the original objective value
+    print(f"Optimal Contract Amount (M): {optimal_M}")
+    print(f"Optimal Strike Price (S): {optimal_S}")
+    print(f"Maximum Objective Value: {max_objective_value}")
+else:
+    print("Optimization failed:", result.message)
