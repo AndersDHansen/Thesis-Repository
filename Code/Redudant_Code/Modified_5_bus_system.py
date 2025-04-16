@@ -484,6 +484,7 @@ class ContractNegotiation():
             self.data.strikeprice_min,
             name='Strike Price Constraint Min'
         )
+        """
         #Contract amount constraints
         self.constraints.contract_amount_constraint = self.model.addLConstr(
             self.variables.M,
@@ -498,7 +499,7 @@ class ContractNegotiation():
             self.data.contract_amount_min,
             name='Contract Amount Constraint Min'
         )
-        
+        """
 
         #Risk Constraints 
 
@@ -509,7 +510,7 @@ class ContractNegotiation():
             name='Risk Aversion Constraint G6'
         )
         #Risk Aversion for L2
-        self.constraints.eta_G6_constraint = self.model.addLConstr(
+        self.constraints.eta_L2_constraint = self.model.addLConstr(
             self.variables.eta_G6 >= gp.quicksum(self.data.load_capacity['L2']*(self.data.retail_price-self.data.price['N3'])+ (self.data.price['N3'] - self.variables.S)*self.data.generator_capacity['G6']),
             #add scenarios here in next iteration 
             name='Risk Aversion Constraint G6'

@@ -8,7 +8,7 @@ import scipy.stats as stats
 from scipy.stats import qmc
 from tqdm import tqdm
 import seaborn as sns
-
+from matplotlib.patches import Polygon # Import added at the top of the file
 
 
 np.random.seed(42)
@@ -238,13 +238,13 @@ class InputData:
         retail_price: float,
         strikeprice_min: float,
         strikeprice_max: float,
-        contract_amount_min: int,
-        contract_amount_max: int,
-        A_L2: float, # to be iterated over through list from outside 
-        A_G6: float, # to be iterated over through list from outside 
-        K_L2: float, # to be iterated over through list from outside 
-        K_G6: float, # to be iterated over through list from outside 
-        alpha: float
+        contract_amount_min: float,
+        contract_amount_max: float,
+        A_L2: float,
+        A_G6: float,
+        K_L2: float,
+        K_G6: float,
+        alpha: int
     ):
         # List of generators 
         self.GENERATORS = GENERATORS
@@ -414,7 +414,7 @@ class OptimalPowerFlow():
     def _build_model(self):
         self.model = gp.Model(name='Economic dispatch')
         self.model.Params.OutputFlag =  0
-        self.model.Params.TimeLimit = 300
+        self.model.Params.TimeLimit = 400
         self._build_variables()
         self._build_constraints()
         self._build_objective()
@@ -464,6 +464,11 @@ class OptimalPowerFlow():
 class ContractNegotiation():
     def __init__(self,input_data:InputData,opf_results: OptimalPowerFlow):
         self.data = input_data  
+
+        #For special Case of negative log 
+        self.data.original_strike_min = self.data.strikeprice_min
+        self.data.original_strike_max = self.data.strikeprice_max
+
         self.opf_results = opf_results
         self.results = Expando()
         self.variables = Expando()
@@ -526,34 +531,42 @@ class ContractNegotiation():
     
     def _build_statistics(self):
 
-        # Calculate the average price at each node
+       # Calculate the average price at each node
         self.data.price_df = self._build_dataframe(self.opf_results.price['N3'],'price') # Node N3 price in dataframe form 
         self.data.price_true = self.data.price_df.values # Node N3 price in dataframe form 
 
-        self.data.price_G6 = (1+self.data.A_G6)*self.data.price_df.values # Node 3 price in numpy array for calculations with added bias if needed '0' is standard
-        self.data.price_L2 = (1+self.data.A_L2)*self.data.price_df.values # Node 3 price in numpy array for calculations with added bias if needed '0' is standard
+        self.data.price_G6 = (1+self.data.K_G6)*self.data.price_df.values # Node 3 price in numpy array for calculations with added bias if needed '0' is standard
+        self.data.price_L2 = (1+self.data.K_L2)*self.data.price_df.values # Node 3 price in numpy array for calculations with added bias if needed '0' is standard
 
         self.data.generator_production_df = self._build_dataframe(self.opf_results.generator_production['G6'],'generator_production') # Generator G6
         self.data.generator_production = self.data.generator_production_df.values # Generator G6 in numpy array for calculations
 
-        self.data.N3_mean_true = self.data.price.mean() # Mean price at node N3
-        self.data.N3_std_true = self.data.price.std(ddof=1) # Std price at node N3
+        self.data.price_mean_true = self.data.price_true.mean() # Mean price at node N3
+        self.data.price_std_true = self.data.price_true.std(ddof=1) # Std price at node N3
 
         # Make distributions for the price at node N3
-        self.data.pdf_true = stats.norm.pdf(self.data.price, self.data.N3_mean, self.data.N3_std) # True distribution 
+        
+        self.data.generator_production_df = self._build_dataframe(self.opf_results.generator_production['G6'],'generator_production') # Generator G6
+        self.data.generator_production = self.data.generator_production_df.values # Generator G6 in numpy array for calculations
+
+        self.data.price_aggregated = self.data.price_true.sum() # Aggregated price at node N3 (average over scenarios) 
+
+        # Make distributions for the price at node N3
+        self.data.pdf_true = stats.norm.pdf(self.data.price_true, self.data.price_mean_true, self.data.price_std_true) # True distribution 
         
         # If assuming they have different observations of prices ( i.e., different K (bias) values)
-        #pdf_G6 = stats.norm.pdf(self.data.price['N3'].values, self.data.N3_mean+K_G6, self.data.N3_std) # G6 observed distribution 
-        #pdf_L2 = stats.norm.pdf(self.data.price['N3'].values, self.data.N3_mean+K_L2, self.data.N3_std) # L2 observed distribution 
+        pdf_G6 = stats.norm.pdf(self.data.price_G6, self.data.price_G6.mean(), self.data.price_G6.std()) # G6 observed distribution 
+        pdf_test = stats.norm.pdf(self.data.price_true, self.data.price_mean_true+0.01, self.data.price_std_true) # L2 observed distribution 
         
         #Make this a call from utility function 
         self.data.net_earnings_no_contract_G6_df = self._build_dataframe(self.opf_results.generator_revenue['G6'],'generator_revenue')
-        self.data.net_earnings_no_contract_G6 = self.data.net_earnings_no_contract_G6_df.values # Generator G6 earnings in numpy array for calculations
+        self.data.net_earnings_no_contract_G6 = self.data.net_earnings_no_contract_G6_df.sum().values # Generator G6 earnings in numpy array for calculations ( Total Sum per Scenario)
 
         self.data.net_earnings_no_contract_L2_df = self.data.load_capacity['L2']*(self.data.retail_price-self.data.price_df)
-        self.data.net_earnings_no_contract_L2 = self.data.net_earnings_no_contract_L2_df.values # Load L2 earnings in numpy array for calculations
+        self.data.net_earnings_no_contract_L2 = self.data.net_earnings_no_contract_L2_df.sum().values # Load L2 earnings in numpy array for calculations
         #CVaR calculation of No contract 
         self.data.CVaR_no_contract_G6 = self._CVaR(self.data.net_earnings_no_contract_G6)
+
         self.data.CVaR_no_contract_L2 = self._CVaR(self.data.net_earnings_no_contract_L2)
 
         # Threat Point G6
@@ -564,19 +577,19 @@ class ContractNegotiation():
 
 
         #CvaR prices 
-        self.data.CVaR_price = self._CVaR(self.data.price) # CVaR price at node N3
+        self.data.CVaR_price = self._CVaR(self.data.price_true) # CVaR price at node N3
     
 
         #SR # Not correct Missing adding E*K
 
-        self.data.SR = np.min([(self.data.N3_mean + self.data.A_G6*self.data.CVaR_price + (1+self.data.A_G6*self.data.K_G6[1]))/(len(self.data.TIME)*(1+self.data.A_G6)),
-                              (self.data.N3_mean - self.data.A_G6*self.data.CVaR_price + (1+self.data.A_G6*self.data.K_G6[1]))/(len(self.data.TIME)*(1+self.data.A_G6)),
-                              (self.data.N3_mean + (1+self.data.A_L2)*self.data.K_L2[1] + self.data.A_L2*self.data.CVaR_price)/(len(self.data.TIME)*(1+self.data.A_L2))])
+        self.data.SR = np.min([(self.data.price_mean_true + self.data.A_G6*self.data.CVaR_price + (1+self.data.A_G6*self.data.K_G6))/(len(self.data.TIME)*(1+self.data.A_G6)),
+                              (self.data.price_mean_true - self.data.A_G6*self.data.CVaR_price + (1+self.data.A_G6*self.data.K_G6))/(len(self.data.TIME)*(1+self.data.A_G6)),
+                              (self.data.price_mean_true + (1+self.data.A_L2)*self.data.K_L2 + self.data.A_L2*self.data.CVaR_price)/(len(self.data.TIME)*(1+self.data.A_L2))])
 
         #SU
-        self.data.SU = np.max([(self.data.N3_mean + self.data.A_G6*self.data.CVaR_price + (1+self.data.A_G6*self.data.K_G6[1]))/(len(self.data.TIME)*(1+self.data.A_G6)),
-                              (self.data.N3_mean - self.data.A_G6*self.data.CVaR_price + (1+self.data.A_G6*self.data.K_G6[1]))/(len(self.data.TIME)*(1+self.data.A_G6)),
-                              (self.data.N3_mean + (1+self.data.A_L2)*self.data.K_L2[1] + self.data.A_L2*self.data.CVaR_price)/(len(self.data.TIME)*(1+self.data.A_L2))])
+        self.data.SU = np.max([(self.data.price_mean_true + self.data.A_G6*self.data.CVaR_price + (1+self.data.A_G6*self.data.K_G6))/(len(self.data.TIME)*(1+self.data.A_G6)),
+                              (self.data.price_mean_true - self.data.A_G6*self.data.CVaR_price + (1+self.data.A_G6*self.data.K_G6))/(len(self.data.TIME)*(1+self.data.A_G6)),
+                              (self.data.price_mean_true + (1+self.data.A_L2)*self.data.K_L2+ self.data.A_L2*self.data.CVaR_price)/(len(self.data.TIME)*(1+self.data.A_L2))])
 
         print(self.data.SR)
         print(self.data.SU)
@@ -584,7 +597,7 @@ class ContractNegotiation():
     def _build_model(self):
         self.model = gp.Model(name='Nash Bargaining Model')
         self.model.Params.NonConvex = 2
-        self.model.Params.OutputFlag =  0
+        #self.model.Params.OutputFlag =  0
 
         self.model.Params.TimeLimit = 30
         self._build_variables()
@@ -594,23 +607,24 @@ class ContractNegotiation():
         self.model.update()
     
     def _build_variables(self):
-        # build strike price variables
+     
 
         # Auxiliary variables for logaritmic terms
 
         self.variables.arg_G6 = self.model.addVar(lb=1e-18, name="UG6_minus_ZetaG6")
         self.variables.arg_L2 = self.model.addVar(lb=1e-18, name="UL2_minus_ZetaL2")
 
-        # Step 3: Define logarithmic terms
+        # Define logarithmic terms
         self.variables.log_arg_G6 = self.model.addVar(name="log_arg_G6")
         self.variables.log_arg_L2 = self.model.addVar(name="log_arg_L2")
 
-    
+           # build strike price variables
         self.variables.S = self.model.addVar(
-            lb=self.data.strikeprice_min,
-            ub=self.data.strikeprice_max,
+            lb=0,
+            ub=50,
             name='Strike_Price'
         )
+
         """
         # build contract amount variables
         self.variables.M = self.model.addVar(
@@ -640,15 +654,15 @@ class ContractNegotiation():
         self.model.update() 
        
     def _build_constraints(self):
-            # Single Strike Price Constraint
+        # Single Strike Price Constraint
         self.constraints.strike_price_constraint =  self.model.addLConstr(
-        self.variables.S<=self.data.strikeprice_max,
+        self.variables.S<=50,
         name='Strike_Price_Constraint_Max'
     )
         
          #Strike Price min  constraints
         self.constraints.strike_price_constraint_min = self.model.addLConstr(
-            self.data.strikeprice_min <= self.variables.S,
+            0 <= self.variables.S,
             name='Strike_Price_Constraint_Min'
         )
 
@@ -671,13 +685,10 @@ class ContractNegotiation():
         """
 
         #Logarithmic constraints
-    
         self.model.addGenConstrLog(self.variables.arg_G6, self.variables.log_arg_G6, "log_G6")
         self.model.addGenConstrLog(self.variables.arg_L2, self.variables.log_arg_L2, "log_L2")
         
-
-        #Risk Constraints   
-            
+        #Risk Constraints       
         self.constraints.eta_G6_constraint = {
             s: self.model.addLConstr(
             self.variables.eta_G6[s] >=self.variables.zeta_G6 - gp.quicksum((self.data.price_G6[t,s]-self.data.generator_cost_a['G6'])*self.data.generator_production[t,s]-self.data.generator_cost_b['G6']*(self.data.generator_production[t,s]*self.data.generator_production[t,s])
@@ -750,39 +761,38 @@ class ContractNegotiation():
         # save utility for G6
         EuG6 = self.data.net_earnings_no_contract_G6
         
-        SMG6 = {(t, s): ( self.results.strike_price-self.data.price[t,s]) * self.results.contract_amount
+        SMG6 = {(t, s): ( self.results.strike_price-self.data.price_true[t,s]) * self.results.contract_amount
         for t in self.data.TIME for s in self.data.SCENARIOS_L}
 
         SMG6_df = self._build_dataframe(SMG6,'G6_revenue')
+        SMG6_scen = SMG6_df.sum(axis=0)  # Sum across all time periods for each scenario
         # Calcuate CVar for G6
-        self.results.CVaRG6 = self._CVaR(EuG6+SMG6_df.values)
+        self.results.CVaRG6 = self._CVaR(EuG6+SMG6_scen.values)
         #Save Utility 
-        self.results.utility_G6 = (1-self.data.A_G6)*(EuG6+SMG6_df.values).mean() + self.data.A_G6*self.results.CVaRG6
+        self.results.utility_G6 = (1-self.data.A_G6)*(EuG6+SMG6_scen.values).mean() + self.data.A_G6*self.results.CVaRG6
       
         # Repeat the same process for L2 revenue
         EuL2 = self.data.net_earnings_no_contract_L2
-        SML2 = {(t, s): (self.data.price[t, s] - self.results.strike_price) * self.results.contract_amount
+        SML2 = {(t, s): (self.data.price_true[t, s] - self.results.strike_price) * self.results.contract_amount
                 for t in self.data.TIME for s in self.data.SCENARIOS_L}
 
         SML2_df = self._build_dataframe(SML2,'L2_revenue')
+        SML2_scen = SML2_df.sum(axis=0)
 
-        self.results.CVaRL2 = self._CVaR(EuL2+SML2_df.values)
+        self.results.CVaRL2 = self._CVaR(EuL2+SML2_scen.values)
 
-        utility_L2 = (1-self.data.A_L2)*(EuL2+SML2_df.values).mean() + self.data.A_L2*self.results.CVaRL2
+        utility_L2 = (1-self.data.A_L2)*(EuL2+SML2_scen.values).mean() + self.data.A_L2*self.results.CVaRL2
         #Save Utility
         self.results.utility_L2 = utility_L2
 
         # --- Calculate accumulated revenue for each scenario ---
         # Accumulated revenue for G6
         accumulated_revenue_G6 = SMG6_df.sum(axis=0)  # Sum across all time periods for each scenario
-        self.results.accumulated_revenue_G6 = accumulated_revenue_G6
+        self.results.accumulated_revenue_G6 =EuG6+ accumulated_revenue_G6
 
         # Accumulated revenue for L2
         accumulated_revenue_L2 = SML2_df.sum(axis=0)  # Sum across all time periods for each scenario
-        self.results.accumulated_revenue_L2 = accumulated_revenue_L2
-
-    
-        
+        self.results.accumulated_revenue_L2 =EuL2+ accumulated_revenue_L2
     def display_results(self):
         print("-------------------   RESULTS GUROBI  -------------------")
         print(f"Optimal Objective Value (Log): {self.results.objective_value}")
@@ -795,8 +805,8 @@ class ContractNegotiation():
         print(f"Treat Point G6: {self.data.Zeta_G6}")
         print(f"Treat Point L2: {self.data.Zeta_L2}")
 
-    def manual_optimization(self):
-        strike_prices = np.linspace(17, 18, 20000)  # Range of strike prices to evaluate
+    def manual_optimization(self,plot=False,filename = None):
+        strike_prices = np.linspace(18,20, 1000)  # Range of strike prices to evaluate
         contract_amounts = np.linspace(self.data.contract_amount_min, self.data.contract_amount_max, 100)
         M = 300
 
@@ -806,41 +816,53 @@ class ContractNegotiation():
         combined_utilities = []  # To store the combined utility for the Nash product
         combined_utilities_log = []
 
+        #Initialize special case values (In case of negative log values)
+        self.data.special_case_min_strike = 1000
+        self.data.special_case_max_strike = 0
+
         # Iterate over strike prices
         for strike in tqdm(strike_prices, desc='loading...'):
             # Create dictionaries to store revenues for G6 and L2
-            SMG6 = {(t, s): (strike - self.data.price[t, s]) * M for t in self.data.TIME for s in self.data.SCENARIOS_L}
-            SML2 = {(t, s): (self.data.price[t, s] - strike) * M for t in self.data.TIME for s in self.data.SCENARIOS_L}
+            SMG6 = {(t, s): (strike - self.data.price_G6[t, s]) * M for t in self.data.TIME for s in self.data.SCENARIOS_L}
+            SML2 = {(t, s): (self.data.price_L2[t, s] - strike) * M for t in self.data.TIME for s in self.data.SCENARIOS_L}
 
             # Create DataFrames for G6 and L2 revenues
-            SMG6_df = self._build_dataframe(SMG6, 'G6_revenue').values
-            SML2_df = self._build_dataframe(SML2, 'L2_revenue').values
+            SMG6_df = self._build_dataframe(SMG6, 'G6_revenue')
+            SML2_df = self._build_dataframe(SML2, 'L2_revenue')
 
-            # Calculate total revenues for G6 and L2
-            Total_revenue_G6 = SMG6_df + self.data.net_earnings_no_contract_G6
-            Total_revenue_L2 = SML2_df + self.data.net_earnings_no_contract_L2
-
-            # Calculate average revenues across all scenarios
-            Avg_revenue_G6 = Total_revenue_G6.mean()
-            Avg_revenue_L2 = Total_revenue_L2.mean()
+            # Calculate total revenues for G6 and L2 across all scenarios
+            Scen_revenue_G6 = SMG6_df.sum() + self.data.net_earnings_no_contract_G6
+            Scen_revenue_L2 = SML2_df.sum() + self.data.net_earnings_no_contract_L2
 
             # Calculate CVaR for the worst-case scenarios
-            CVaRG6 = self._CVaR(Total_revenue_G6.flatten())
-            CVaRL2 = self._CVaR(Total_revenue_L2.flatten())
+            CVaRG6 = self._CVaR(Scen_revenue_G6.values)
+            CVaRL2 = self._CVaR(Scen_revenue_L2.values)
 
             # Calculate utility for G6
-            UG6 = (1 - self.data.A_G6) * Avg_revenue_G6 + self.data.A_G6 * CVaRG6
+            UG6 = (1 - self.data.A_G6) * Scen_revenue_G6.mean() + self.data.A_G6 * CVaRG6
             utilities_G6.append(UG6)
 
             # Calculate utility for L2
-            UL2 = (1 - self.data.A_L2) * Avg_revenue_L2 + self.data.A_L2 * CVaRL2
+            UL2 = (1 - self.data.A_L2) * Scen_revenue_L2.mean() + self.data.A_L2 * CVaRL2
             utilities_L2.append(UL2)
 
             # Calculate the Nash product (combined utility)
             combined_utility = (UG6 - self.data.Zeta_G6 ) * (UL2 - self.data.Zeta_L2) 
-                        # Calculate the Nash product (combined utility)
-            combined_utility_log = np.log(np.maximum(UG6 - self.data.Zeta_G6 , 1e-18)) + np.log(np.maximum(UL2 - self.data.Zeta_L2 , 1e-18)) # Avoid log(0) by using a small value
+            # Calculate the Nash product (combined utility)
+            combined_utility_log = np.log(np.maximum(UG6 - self.data.Zeta_G6 , 1e-10)) + np.log(np.maximum(UL2 - self.data.Zeta_L2 , 1e-10)) # Avoid log(0) by using a small value
             combined_utility_log = np.nan_to_num(combined_utility_log)  # Handle NaN values
+            """
+            if combined_utility_log <0:
+                log_abs_diff_G6 = np.log(np.maximum(np.abs(UG6 - self.data.Zeta_G6), 1e-10))
+                log_abs_diff_L2 = np.log(np.maximum(np.abs(UL2 - self.data.Zeta_L2), 1e-10))
+                # Sum the logarithms
+                combined_utility_log = (log_abs_diff_G6 + log_abs_diff_L2)
+
+                if combined_utility_log -combined_utility <1e-6 and strike < self.data.special_case_min_strike:
+                    self.data.special_case_min_strike = strike
+                if combined_utility_log - combined_utility <1e-6 and strike > self.data.special_case_max_strike:
+                    self.data.special_case_max_strike = strike
+            """
             combined_utilities.append(combined_utility)
             combined_utilities_log.append(combined_utility_log)
 
@@ -849,6 +871,7 @@ class ContractNegotiation():
         max_combined_utility_index_log = np.argmax(combined_utilities_log)
         optimal_strike_price = strike_prices[max_combined_utility_index]
         optimal_strike_price_log = strike_prices[max_combined_utility_index_log]
+
 
         # Include threat points for comparison
         print("\n-------------------   RESULTS Iterative  -------------------")
@@ -861,64 +884,421 @@ class ContractNegotiation():
         print(f"Maximum Utility L2: {utilities_L2[max_combined_utility_index]}")
 
         print(f"Maximum Combined Utility (Nash Product): {combined_utilities[max_combined_utility_index]}")
-        print(f"Maximum Combined Utility Log (Nash Product): {np.exp(combined_utilities_log[max_combined_utility_index_log])}")
+        #print(f"Maximum Combined Utility Log (Nash Product): {np.exp(combined_utilities_log[max_combined_utility_index_log])}")
+        print(f"Maximum Combined Utility Log (Nash Product): {combined_utilities_log[max_combined_utility_index_log]}")
 
-        # Plot the utilities and Nash product for different strike prices
-        fig, axs = plt.subplots(1, 2, figsize=(15, 6))
+        if plot == True:
+            print("Plotting results...")
+            # Plot the utilities and Nash product for different strike prices
+            fig, axs = plt.subplots(1, 3, figsize=(20, 6))
 
-        # First subplot: Utilities for G6 and L2
-        axs[0].plot(strike_prices, utilities_G6, label="Utility G6", color="blue")
-        axs[0].plot(strike_prices, utilities_L2, label="Utility L2", color="green")
-        axs[0].axvline(optimal_strike_price, color="red", linestyle="--", label=f"Optimal Strike Price: {optimal_strike_price:.5f}")
-        axs[0].set_xlabel("Strike Price")
-        axs[0].set_ylabel("Utility")
-        axs[0].set_title("Utilities for Different Strike Prices")
-        axs[0].legend()
-        axs[0].grid()
+            # First subplot: Utilities for G6 and L2
+            axs[0].plot(strike_prices, utilities_G6, label="Utility G6", color="blue")
+            axs[0].plot(strike_prices, utilities_L2, label="Utility L2", color="green")
+            axs[0].axvline(optimal_strike_price, color="red", linestyle="--", label=f"Optimal Strike Price: {optimal_strike_price:.5f}")
+            axs[0].axvline(optimal_strike_price, color="red", linestyle="--", label=f"Optimal Log Strike Price: {optimal_strike_price_log:.5f}")
+            axs[0].set_xlabel("Strike Price")
+            axs[0].set_ylabel("Utility")
+            axs[0].set_title(f"Utilities for Different Strike Prices")
+            axs[0].legend()
+            axs[0].grid()
 
-        # Second subplot: Nash Product and Log Nash Product
-        axs[1].plot(strike_prices, combined_utilities, label="Nash Product", color="green", linestyle="--")
-        axs[1].plot(strike_prices, np.exp(combined_utilities_log), label="Nash Product Log", color="purple", linestyle="--")
-        axs[1].axvline(optimal_strike_price, color="red", linestyle="--", label=f"Optimal Strike Price: {optimal_strike_price:.5f}")
-        axs[1].set_xlabel("Strike Price")
-        axs[1].set_ylabel("Nash Product")
-        axs[1].set_title("Nash Product and Log Nash Product for Different Strike Prices")
-        axs[1].legend()
-        axs[1].grid()
+            # Second subplot: Nash Product and Log Nash Product
+            axs[1].plot(strike_prices, combined_utilities, label="Nash Product", color="green", linestyle="--")
+            axs[1].plot(strike_prices, np.exp(combined_utilities_log), label="Nash Product Log", color="purple", linestyle="--")
+            axs[1].axvline(optimal_strike_price, color="red", linestyle="--", label=f"Optimal Strike Price: {optimal_strike_price:.5f}")
+            axs[1].axvline(optimal_strike_price_log, color="orange", linestyle="--", label=f"Optimal Log Strike Price: {optimal_strike_price_log:.5f}")
+            axs[1].set_xlabel("Strike Price")
+            axs[1].set_ylabel("Nash Product")
+            axs[1].set_title("Nash Product and Log Nash Product for Different Strike Prices")
+            axs[1].legend()
+            axs[1].grid()
 
-        # Adjust layout and show the plot
+
+            # Second subplot: Nash Product and Log Nash Product
+            axs[2].plot(utilities_G6, utilities_L2,  color="orange", linestyle="-")
+            axs[2].set_xlabel("Utility G6")
+            axs[2].set_ylabel("Utility L2")
+            axs[2].set_title("Utility G6 vs Utility L2")
+            axs[2].grid()
+            fig.suptitle(f"Utilities and Nash Product for Different Strike Prices with with Risk AG{self.data.A_G6} and Risk AL{self.data.A_L2}")
+
+            # Adjust layout and show the plot
+            plt.tight_layout()
+            if filename:
+                plt.savefig(filename)
+                print(f"Histogram plot saved to {filename}")
+                plt.close(fig) # Close the figure after saving
+            else:
+                plt.show()
+
+        return optimal_strike_price
+
+    def plot_barter_set(self, case: str = 'fig2', filename: str = None):
+        """
+        Calculates and plots the Utility Possibility Set (UPS) boundaries
+        and the resulting barter set based on the specified case (fig2, fig3, fig4).
+        Uses data stored within the ContractNegotiation instance (self.data, self.opf_results).
+
+        Args:
+            case (str): Specifies which figure/condition to simulate ('fig2', 'fig3', 'fig4').
+            filename (str, optional): If provided, saves the plot to this file. Defaults to None.
+        """
+        print(f"\n--- Generating Barter Set Plot (Method) for Case: {case} ---")
+
+
+        pi0_G = self.data.net_earnings_no_contract_G6
+        pi0_L = self.data.net_earnings_no_contract_L2
+
+        # Reshape LMPs
+      
+
+        lambda_sum_scen = np.sum(self.data.price_true, axis=0)
+
+        # Parameters from self.data
+        AG = self.data.A_G6
+        AL = self.data.A_L2
+        MR = self.data.contract_amount_min
+        MU = self.data.contract_amount_max
+        SR = self.data.strikeprice_min
+        SU = self.data.strikeprice_max
+        T_hours = len(self.data.TIME)
+
+        # Threat points from self.data (calculated in _build_statistics)
+        Zeta_G = self.data.Zeta_G6
+        Zeta_L = self.data.Zeta_L2
+
+        if np.isnan(Zeta_G) or np.isnan(Zeta_L):
+             print("Error: Threat points (Zeta_G, Zeta_L) are NaN. Cannot plot barter set.")
+             return
+
+        # --- Calculate UPS Boundary Curves (V1 and V2) ---
+        # Based on Lemma 3: Vary M for fixed S=SR and S=SU
+        num_m_points_lemma = 100
+        M_values_lemma = np.linspace(MR, MU, num_m_points_lemma)
+        UG_V1_lemma, UL_V1_lemma = [], []
+        UG_V2_lemma, UL_V2_lemma = [], []
+
+        for M in M_values_lemma:
+             # V1: S = SR
+            piG_SR_scen = pi0_G + (SR * T_hours - lambda_sum_scen) * M
+            piL_SR_scen = pi0_L + (lambda_sum_scen - SR * T_hours) * M
+            mean_piG_SR = np.mean(piG_SR_scen)
+            mean_piL_SR = np.mean(piL_SR_scen)
+            cvar_piG_SR = self._CVaR(piG_SR_scen)
+            cvar_piL_SR = self._CVaR(piL_SR_scen)
+            UG_V1_lemma.append((1 - AG) * mean_piG_SR + AG * cvar_piG_SR)
+            UL_V1_lemma.append((1 - AL) * mean_piL_SR + AL * cvar_piL_SR)
+
+            # V2: S = SU
+            piG_SU_scen = pi0_G + (SU * T_hours - lambda_sum_scen) * M
+            piL_SU_scen = pi0_L + (lambda_sum_scen - SU * T_hours) * M
+            mean_piG_SU = np.mean(piG_SU_scen)
+            mean_piL_SU = np.mean(piL_SU_scen)
+            cvar_piG_SU = self._CVaR(piG_SU_scen)
+            cvar_piL_SU = self._CVaR(piL_SU_scen)
+            UG_V2_lemma.append((1 - AG) * mean_piG_SU + AG * cvar_piG_SU)
+            UL_V2_lemma.append((1 - AL) * mean_piL_SU + AL * cvar_piL_SU)
+
+        UG_V1_lemma, UL_V1_lemma = np.array(UG_V1_lemma), np.array(UL_V1_lemma)
+        UG_V2_lemma, UL_V2_lemma = np.array(UG_V2_lemma), np.array(UL_V2_lemma)
+        # Sort V1/V2 points for plotting
+        sort_idx_v1 = np.argsort(UG_V1_lemma)
+        sort_idx_v2 = np.argsort(UG_V2_lemma)
+        UG_V1_plot, UL_V1_plot = UG_V1_lemma[sort_idx_v1], UL_V1_lemma[sort_idx_v1]
+        UG_V2_plot, UL_V2_plot = UG_V2_lemma[sort_idx_v2], UL_V2_lemma[sort_idx_v2]
+
+        # --- Plotting ---
+        plt.style.use('seaborn-v0_8-whitegrid')
+        fig, ax = plt.subplots(figsize=(8, 7))
+
+        ax.plot(UG_V1_plot, UL_V1_plot, 'b-', label='$V_1 (S=S_R)$')
+        ax.plot(UG_V2_plot, UL_V2_plot, 'g-', label='$V_2 (S=S_U)$')
+        ax.plot(Zeta_G, Zeta_L, 'ro', markersize=8, label='Threat Point $(\zeta_G, \zeta_L)$')
+
+        # --- Determine and plot the barter set based on the case ---
+        mask_V1 = (UG_V1_plot >= Zeta_G) & (UL_V1_plot >= Zeta_L)
+        mask_V2 = (UG_V2_plot >= Zeta_G) & (UL_V2_plot >= Zeta_L)
+        UG_V1_barter = UG_V1_plot[mask_V1]
+        UL_V1_barter = UL_V1_plot[mask_V1]
+        UG_V2_barter = UG_V2_plot[mask_V2]
+        UL_V2_barter = UL_V2_plot[mask_V2]
+
+        # Helper needs to be nested or passed self if it uses instance data/methods
+        def find_intersection(ug_curve, ul_curve, zeta_val, axis='G'):
+            # Same implementation as before
+            if axis == 'G':
+                indices = np.where(np.diff(np.sign(ug_curve - zeta_val)))[0]
+            else:
+                indices = np.where(np.diff(np.sign(ul_curve - zeta_val)))[0]
+
+            if len(indices) > 0:
+                idx = indices[0]
+                if idx + 1 < len(ug_curve):
+                    if axis == 'G':
+                        u1, u2 = ug_curve[idx], ug_curve[idx + 1]
+                        v1, v2 = ul_curve[idx], ul_curve[idx + 1]
+                        if (u2 - u1) == 0: return zeta_val, v1
+                        interp_ul = v1 + (v2 - v1) * (zeta_val - u1) / (u2 - u1)
+                        return zeta_val, interp_ul
+                    else:
+                        u1, u2 = ul_curve[idx], ul_curve[idx + 1]
+                        v1, v2 = ug_curve[idx], ug_curve[idx + 1]
+                        if (u2 - u1) == 0: return v1, zeta_val
+                        interp_ug = v1 + (v2 - v1) * (zeta_val - u1) / (u2 - u1)
+                        return interp_ug, zeta_val
+            if len(ug_curve)>0:
+                 if axis == 'G':
+                     valid_idx = np.where(ug_curve >= zeta_val)[0]
+                     if len(valid_idx)>0: return zeta_val, ul_curve[valid_idx[0]]
+                 else:
+                     valid_idx = np.where(ul_curve >= zeta_val)[0]
+                     if len(valid_idx)>0: return ug_curve[valid_idx[0]], zeta_val
+            return None
+
+        # Plot barter set logic (same as before, using nested find_intersection)
+        if case == 'fig2':
+            title = 'Barter Set (Fig 2: Conditions 29 & 30 Hold)'
+            point_I = find_intersection(UG_V1_barter, UL_V1_barter, Zeta_G, axis='G')
+            point_J = find_intersection(UG_V1_barter, UL_V1_barter, Zeta_L, axis='L')
+            if point_I and point_J and point_I[1] >= Zeta_L and point_J[0] >= Zeta_G:
+                vertices_corrected = [ (Zeta_G, Zeta_L), (Zeta_G, point_I[1]), (point_J[0], Zeta_L) ]
+                polygon = Polygon(vertices_corrected, closed=True, color='lightcoral', alpha=0.5, label='Barter Set B')
+                ax.add_patch(polygon)
+                print("Barter set (Triangle) plotted for Fig 2.")
+            else:
+                 print("Could not determine valid vertices for Fig 2 barter set.")
+                 ax.annotate('Barter Set B\n(Region $U \\geq \zeta$)', xy=(Zeta_G, Zeta_L), xytext=(Zeta_G + abs(Zeta_G*0.01), Zeta_L + abs(Zeta_L*0.01)), arrowprops=dict(facecolor='black', arrowstyle='->'))
+
+        elif case == 'fig3':
+            title = 'Barter Set (Fig 3: Condition 30 Fails)'
+            ax.annotate('Barter Set B = {Threat Point}', xy=(Zeta_G, Zeta_L), xytext=(Zeta_G + abs(Zeta_G*0.01), Zeta_L + abs(Zeta_L*0.01) ), arrowprops=dict(facecolor='black', arrowstyle='->'))
+            print("Barter set (Threat Point) indicated for Fig 3.")
+
+        elif case == 'fig4':
+            title = 'Barter Set (Fig 4: Condition 29 Fails)'
+            point_I = find_intersection(UG_V2_barter, UL_V2_barter, Zeta_G, axis='G')
+            point_J = find_intersection(UG_V2_barter, UL_V2_barter, Zeta_L, axis='L')
+            if point_I and point_J and point_I[1] >= Zeta_L and point_J[0] >= Zeta_G:
+                vertices_corrected = [ (Zeta_G, Zeta_L), (Zeta_G, point_I[1]), (point_J[0], Zeta_L) ]
+                polygon = Polygon(vertices_corrected, closed=True, color='lightcoral', alpha=0.5, label='Barter Set B')
+                ax.add_patch(polygon)
+                print("Barter set (Triangle) plotted for Fig 4.")
+            else:
+                 print("Could not determine valid vertices for Fig 4 barter set.")
+                 ax.annotate('Barter Set B\n(Region $U \\geq \zeta$)', xy=(Zeta_G, Zeta_L), xytext=(Zeta_G + abs(Zeta_G*0.01), Zeta_L + abs(Zeta_L*0.01)), arrowprops=dict(facecolor='black', arrowstyle='->'))
+        else:
+            title = 'Utility Possibility Set'
+            print(f"Unknown case: {case}. Plotting UPS boundaries only.")
+
+        # Final plot adjustments (same as before)
+        ax.set_xlabel('GenCo Utility ($U_G$)')
+        ax.set_ylabel('LSE Utility ($U_L$)')
+        ax.set_title(title)
+        ax.legend()
+        ax.grid(True)
+        all_ug = np.concatenate((UG_V1_plot, UG_V2_plot, [Zeta_G]))
+        all_ul = np.concatenate((UL_V1_plot, UL_V2_plot, [Zeta_L]))
+        min_ug, max_ug = np.nanmin(all_ug), np.nanmax(all_ug)
+        min_ul, max_ul = np.nanmin(all_ul), np.nanmax(all_ul)
+        if not (np.isnan(min_ug) or np.isnan(max_ug) or np.isnan(min_ul) or np.isnan(max_ul)):
+            ug_range = max_ug - min_ug if max_ug > min_ug else 1.0
+            ul_range = max_ul - min_ul if max_ul > min_ul else 1.0
+            ax.set_xlim(min_ug - ug_range * 0.1, max_ug + ug_range * 0.1)
+            ax.set_ylim(min_ul - ul_range * 0.1, max_ul + ul_range * 0.1)
+        else:
+             pass #print("Warning: Could not determine plot limits due to NaN values.") # Reduced verbosity
+
         plt.tight_layout()
-        plt.show()
+        if filename:
+            plt.savefig(filename)
+            print(f"Barter set plot saved to {filename}")
+            plt.close(fig)
+        else:
+            plt.show()
 
+    def check_barter_conditions(self):
+        """
+        Checks if conditions (29) and (30) from the paper hold.
+
+        These conditions determine the expected shape of the barter set.
+        Condition (29) holding implies the upper boundary is potentially non-trivial.
+        Condition (30) holding implies the lower boundary is potentially non-trivial.
+
+        Returns:
+            tuple: A tuple (bool | None, bool | None) indicating
+                   (condition_29_holds, condition_30_holds).
+                   Returns None for a condition if it cannot be calculated due to NaN values.
+        """
+        print("\n--- Checking Barter Set Conditions (29 & 30) ---")
+
+        # --- 1. Retrieve Necessary Parameters and Data ---
+        try:
+            AG = self.data.A_G6
+            AL = self.data.A_L2
+            T_val = len(self.data.TIME)
+            KG_abs = self.data.K_G6 # Absolute bias shift
+            KL_abs = self.data.K_L2 # Absolute bias shift
+            EP_lambda_sum_true = self.data.price_true.sum(axis=0).mean() # Mean of the sum of LMPs across all scenarios
+            # CVaR_neg_lam_true corresponds to CVaRαP(-λΣ) in the paper's notation
+            CVaR_neg_lam_true = self._CVaR(self.data.price_true.sum(axis=1)) # CVaR of the sum of LMPs across all scenarios
+            MR = self.data.contract_amount_min
+            MU = self.data.contract_amount_max
+            SR = self.data.strikeprice_min # Use the lower bound strike price SR
+
+            # No-contract earnings and perceived lambda_sum for LSE
+            pi0_L = self.opf_results.net_earnings_no_contract_L2
+            lambda_sum_L2_scen = self.data.price_true.sum(axis=0) # Sum across all time periods for each scenario
+
+        except AttributeError as e:
+            print(f"Error accessing necessary data: {e}. Cannot check conditions.")
+            return (None, None)
+
+        # --- 2. Check for Invalid Inputs or Potential Division by Zero ---
+        required_values = [AG, AL, T_val, KG_abs, KL_abs, EP_lambda_sum_true, CVaR_neg_lam_true, MR, MU, SR]
+        if any(np.isnan(v) for v in required_values) or T_val == 0:
+            print("Warning: NaN values found in required parameters or T_val is zero. Cannot check conditions.")
+            return (None, None)
+        if AL == 0:
+            print("Warning: AL is zero. Cannot check conditions due to division by zero.")
+            return (None, None)
+        if (1 + AG) == 0:
+             print("Warning: (1 + AG) is zero. Cannot check conditions due to division by zero.")
+             return (None, None)
+
+
+        # --- 3. Calculate the Right-Hand Side (RHS) Threshold ---
+        # RHS = [ (AG - AL) / (AL * (1 + AG)) ] * EP(λΣ)
+        try:
+            rhs_threshold = (AG - AL) / (AL * (1 + AG)) * EP_lambda_sum_true
+        except ZeroDivisionError:
+             print("Warning: Division by zero calculating RHS threshold. Cannot check conditions.")
+             return (None, None)
+
+
+        # --- 4. Numerically Estimate dCVaRL(-πL)/dM using Finite Difference ---
+
+        delta_M = 1e-6 # Small change in M for finite difference
+
+        # Helper function to calculate CVaR[-pi_L(M, S)] for LSE
+        def calculate_cvar_neg_piL(M, S):
+            if np.isnan(M) or np.isnan(S): return np.nan
+            # Use LSE's perceived lambda_sum
+            neg_piL_scen = - (pi0_L + (lambda_sum_L2_scen - S * T_val) * M)
+            return self._CVaR(neg_piL_scen) # Use the class's CVaR method
+
+        # Estimate derivative at M = MU, S = SR (for condition 29)
+        cvar_at_mu = calculate_cvar_neg_piL(MU, SR)
+        cvar_at_mu_plus_delta = calculate_cvar_neg_piL(MU + delta_M, SR)
+        if np.isnan(cvar_at_mu) or np.isnan(cvar_at_mu_plus_delta) or delta_M == 0:
+             deriv_at_mu = np.nan
+             print("Warning: Could not calculate derivative at MU due to NaN CVaR.")
+        else:
+            deriv_at_mu = (cvar_at_mu_plus_delta - cvar_at_mu) / delta_M
+
+        # Estimate derivative at M = MR, S = SR (for condition 30)
+        cvar_at_mr = calculate_cvar_neg_piL(MR, SR)
+        # Need point slightly *above* MR for forward difference if MR=0
+        mr_eval_point = MR if MR > 0 else delta_M/10 # Use tiny M if MR is 0
+        cvar_at_mr_plus_delta = calculate_cvar_neg_piL(mr_eval_point + delta_M, SR)
+        # Adjust derivative calculation if MR was 0
+        actual_delta_M_mr = (mr_eval_point + delta_M) - mr_eval_point
+
+        if np.isnan(cvar_at_mr) or np.isnan(cvar_at_mr_plus_delta) or actual_delta_M_mr == 0:
+             deriv_at_mr = np.nan
+             print("Warning: Could not calculate derivative at MR due to NaN CVaR.")
+        else:
+             # Need CVaR at the actual MR point for the difference calculation
+             cvar_at_actual_mr = calculate_cvar_neg_piL(MR, SR) # Recalc just in case mr_eval_point != MR
+             if np.isnan(cvar_at_actual_mr):
+                 deriv_at_mr = np.nan
+                 print("Warning: Could not calculate derivative at MR due to NaN CVaR at MR.")
+             else:
+                 deriv_at_mr = (cvar_at_mr_plus_delta - cvar_at_actual_mr) / actual_delta_M_mr
+
+
+        # --- 5. Calculate the Common Offset Term from LHS ---
+        # Offset = [ AG(1+AL) / (AL(1+AG)) ]*CVaR(-λΣ) + (1/AL)*KL - [(1+AL)/AL]*KG + T*SR
+        # Note: Using CVaR_neg_lam_true which is CVaRαP(-λΣ)
+        try:
+            term_cvar = (AG * (1 + AL)) / (AL * (1 + AG)) * CVaR_neg_lam_true
+            term_bias = (1 / AL) * KL_abs - ((1 + AL) / AL) * KG_abs
+            term_strike = T_val * SR
+            common_offset_term = term_cvar + term_bias + term_strike
+        except (ZeroDivisionError, TypeError, ValueError) as e:
+             print(f"Warning: Could not calculate common offset term: {e}. Cannot check conditions.")
+             return (None, None)
+
+
+        # --- 6. Check Conditions ---
+        cond29_holds = None
+        if not np.isnan(deriv_at_mu) and not np.isnan(common_offset_term) and not np.isnan(rhs_threshold):
+            # Condition 29: dCVaR/dM(MU,SR) > RHS + Offset_term_from_LHS (rearranged from paper)
+            lhs_val_29 = deriv_at_mu
+            rhs_val_29 = rhs_threshold + common_offset_term # Rearranged: d/dM > Thr + Off
+            cond29_holds = lhs_val_29 > rhs_val_29
+            print(f"Condition (29): dCVaR/dM|MU = {lhs_val_29:.4f} > Threshold+Offset = {rhs_val_29:.4f} ? -> {cond29_holds}")
+        else:
+            print("Condition (29): Cannot evaluate due to NaN values.")
+
+
+        cond30_holds = None
+        if not np.isnan(deriv_at_mr) and not np.isnan(common_offset_term) and not np.isnan(rhs_threshold):
+            # Condition 30: dCVaR/dM(MR,SR) < RHS - Offset_term_from_LHS (rearranged from paper)
+             # Careful rearrangement: paper is dCVaR/dM + Offset < Threshold
+            lhs_val_30 = deriv_at_mr
+            # The offset term structure in (30) seems added in the paper's eq.
+            # Let's check the image again.
+            # Eq 30: dCVaR/dM + [AG(1+AL)/...]CVaR(-λΣ) + [1/AL]KL - [...]KG + TS < (AG-AL)/[...]E(λΣ)
+            # So: lhs_cond30 = deriv_at_mr + common_offset_term
+            lhs_val_30 = deriv_at_mr + common_offset_term
+            rhs_val_30 = rhs_threshold # The threshold itself
+            cond30_holds = lhs_val_30 < rhs_val_30
+            print(f"Condition (30): dCVaR/dM|MR + Offset = {lhs_val_30:.4f} < Threshold = {rhs_val_30:.4f} ? -> {cond30_holds}")
+        else:
+            print("Condition (30): Cannot evaluate due to NaN values.")
+
+
+        return (cond29_holds, cond30_holds)
     def run(self):
         self.model.optimize()
         if self.model.status == GRB.OPTIMAL:
-            self.model.write("model.lp")
-            self.model.write("model.rlp")
-            self.model.write("model.mps")
+            #Reset strike price to original values
+            self.data.strikeprice_min = self.data.original_strike_min
+            self.data.strikeprice_max = self.data.original_strike_max
             self._save_results()
         else:
-            self.model.write("model.lp")
-            self.model.write("model.rlp")
-            self.model.write("model.mps")
-            self._save_results()
-       
-            raise RuntimeError(f"optimization of {self.model.ModelName} was not successful")
-    
+            #self.model.write("model.lp")
+            #self.model.write("model.rlp")
+            #self.model.write("model.mps")      
+            """
+            print(f"optimization of {self.model.ModelName} was not successful - Retrying with optimal bounds found through manual Optimization")
+            self.manual_optimization(plot=True,filename = None)
+            print(f"Retrying optimization of {self.model.ModelName} with new minimum {self.data.special_case_min_strike} and maximum {self.data.special_case_max_strike} strike prices")
+            #Update values to special case values - Bounds should be feasible now 
+            self.data.strikeprice_min = self.data.special_case_min_strike
+            self.data.strikeprice_max = self.data.special_case_max_strike
+            self._build_model()
+            print("yaaaaaaaaaaaaaaaaaaaaaaaa",1)
+            self.model.optimize()
+            self._save_results()       
+            """     
+              
 class Plotting_Class():
     """
     Handles plotting of results from the power system contract negotiation simulation.
     """
 
-    def __init__(self,results_df, sensitivty ,styles=None):
+    def __init__(self,risk_sensitivity_df, earnings_risk_sensitivity_df,bias_sensitivity_df ,styles=None):
         """
         Initialize the visualizer. Optionally set default styles.
         Args:
             styles (dict, optional): Dictionary defining default plotting styles.
                                       Defaults to None.
         """
-        self.results_df = results_df
-        self.sensitivity = sensitivty
+        self.risk_sensitivity_df = risk_sensitivity_df
+        self.earnings_risk_sensitivity_df = earnings_risk_sensitivity_df
+        self.bias_sensitivity_df = bias_sensitivity_df
         self.styles = styles if styles else {}
         # Optional styles for sns
         # sns.set_theme(style="whitegrid")
@@ -930,7 +1310,7 @@ class Plotting_Class():
         Args:
             results_df (pd.DataFrame): DataFrame from run_sensitivity_analysis.
         """
-        if self.results_df.empty:
+        if self.risk_sensitivity_df.empty:
             print("No results to plot.")
             return
             
@@ -938,21 +1318,24 @@ class Plotting_Class():
         metrics = ['StrikePrice', 'Utility_G6', 'Utility_L2', 'NashProduct']
         
         num_metrics = len(metrics)
-        fig, axes = plt.subplots(1, num_metrics, figsize=(6 * num_metrics, 5)) # Adjust figsize as needed
-        
-        if num_metrics == 1: # Handle case with only one metric
+        fig, axes = plt.subplots(2, num_metrics // 2, figsize=(6 * num_metrics, 5))  # Adjust figsize as needed
+
+        # Flatten the axes array for easier indexing
+        axes = axes.flatten()
+
+        if num_metrics == 1:  # Handle case with only one metric
             axes = [axes]
 
         for i, metric in enumerate(metrics):
-            ax = axes[i]
+            ax = axes[i]  # Access the correct subplot
             try:
-            # Pivot table for heatmap: Index=A_L2, Columns=A_G6, Values=Metric
-                pivot_table = self.results_df.pivot(index='A_L2', columns='A_G6', values=metric)
-                
+                # Pivot table for heatmap: Index=A_L2, Columns=A_G6, Values=Metric
+                pivot_table = self.risk_sensitivity_df.pivot(index='A_L2', columns='A_G6', values=metric)
+
                 # Use scientific notation only for NashProduct
-                fmt = ".1e" if metric == "NashProduct" else ".2f"
-                
-                sns.heatmap(pivot_table, ax=ax, annot=True, fmt=fmt, cmap="viridis", cbar=True )
+                fmt = ".2f" if metric == "StrikePrice" else ".1e"
+
+                sns.heatmap(pivot_table, ax=ax, annot=True, fmt=fmt, cmap="viridis", cbar=True)
                 ax.set_title(f'{metric} vs. Risk Aversion')
                 ax.set_xlabel('Risk Aversion Generator (A_G6)')
                 ax.set_ylabel('Risk Aversion Load (A_L2)')
@@ -962,11 +1345,12 @@ class Plotting_Class():
                 print(f"Could not plot heatmap for {metric}: {e}")
                 ax.set_title(f'{metric} (Plotting Error)')
 
+        # Adjust layout and save/show the plot
         plt.tight_layout()
         if filename:
             plt.savefig(filename)
             print(f"Histogram plot saved to {filename}")
-            plt.close(fig) # Close the figure after saving
+            plt.close(fig)  # Close the figure after saving
         else:
             plt.show()
 
@@ -983,15 +1367,9 @@ class Plotting_Class():
             A_L2_to_plot (list): A list of A_L2 values to plot histograms for.
             filename (str, optional): If provided, saves the plot to this file. Defaults to None (shows plot).
         """
-        filtered_results = pd.concat([
-            df[(df['A_G6'] == fixed_A_G6) & (df['A_L2'].isin(A_L2_to_plot))]
-            for df in self.sensitivity
-        ], ignore_index=True)
-
-        if filtered_results.empty:
-            print(f"No valid results found for histogram: A_G6 = {fixed_A_G6}, A_L2 in {A_L2_to_plot}")
-            return
-
+        filtered_results = pd.concat([df[(df['A_G6'] == fixed_A_G6) & (df['A_L2'].isin(A_L2_to_plot)) & 
+       (~df['Revenue_G6'].isna()) & (~df['Revenue_L2'].isna())]
+        for df in self.earnings_risk_sensitivity_df if isinstance(df, pd.DataFrame) and not df.empty and 'A_G6' in df.columns and 'A_L2' in df.columns], ignore_index=True)
         # --- Plotting ---
         fig, axes = plt.subplots(1, 2, figsize=(14, 6))
 
@@ -999,28 +1377,73 @@ class Plotting_Class():
         ax_g6 = axes[0]
         for a_l2 in A_L2_to_plot:
             g6_revenue = filtered_results[filtered_results['A_L2'] == a_l2]['Revenue_G6'].values
-           # g6_revenue = np.concatenate(g6_revenue)  # Flatten the array
-            ax_g6.hist(g6_revenue / 1e6, bins=20, alpha=0.6, label=f'A_L={a_l2}', density=False)  # Scale to millions
+            ax_g6.hist(g6_revenue / 1e5, bins=20, alpha=0.6, label=f'A_L={a_l2}', density=False)  # Scale to millions
 
         ax_g6.set_title(f'GenCo (G6) Accumulated Revenue Distribution (A_G6 = {fixed_A_G6})')
-        ax_g6.set_xlabel('GenCo Revenue ($ x 10^6$)')
+        ax_g6.set_xlabel('GenCo Revenue ($ x 10^5$)')
         ax_g6.set_ylabel('Frequency')
         ax_g6.legend()
         ax_g6.grid(True, axis='y', linestyle='--', alpha=0.7)
+        plt.show()
 
-    # --- L2 Revenue Histogram ---
+        # --- L2 Revenue Histogram ---
         ax_l2 = axes[1]
         for a_l2 in A_L2_to_plot:
             l2_revenue = filtered_results[filtered_results['A_L2'] == a_l2]['Revenue_L2'].values
-            #l2_revenue = np.concatenate(l2_revenue)  # Flatten the array
-            ax_l2.hist(l2_revenue / 1e6, bins=20, alpha=0.6, label=f'A_L={a_l2}', density=False)  # Scale to millions
+            ax_l2.hist(l2_revenue / 1e5, bins=20, alpha=0.6, label=f'A_L={a_l2}', density=False)  # Scale to millions
 
         ax_l2.set_title(f'LSE (L2) Accumulated Revenue Distribution (A_G6 = {fixed_A_G6})')
-        ax_l2.set_xlabel('LSE Revenue ($ x 10^6$)')
+        ax_l2.set_xlabel('LSE Revenue ($ x 10^5$)')
         ax_l2.set_ylabel('Frequency')
         ax_l2.legend()
         ax_l2.grid(True, axis='y', linestyle='--', alpha=0.7)
+
+        # Adjust layout to prevent overlap
+        plt.tight_layout()
+        if filename:
+            plt.savefig(filename)
+            print(f"Histogram plot saved to {filename}")
+            plt.close(fig)  # Close the figure after saving
+        else:
+            plt.show()
+    def _plot_bias_sensitivity(self,filename=None):
+        """
+        Plots the sensitivity analysis results using heatmaps.
+
+        Args:
+            results_df (pd.DataFrame): DataFrame from run_sensitivity_analysis.
+        """
+       
+        if self.bias_sensitivity_df.empty:
+            print("No results to plot.")
+            return
+            
+        # Metrics to plot
+        metrics = ['StrikePrice']
         
+        num_metrics = len(metrics)
+        fig, axes = plt.subplots(1, num_metrics, figsize=(6 * num_metrics, 5)) # Adjust figsize as needed
+        
+        if num_metrics == 1: # Handle case with only one metric
+            axes = [axes]
+
+        for i, metric in enumerate(metrics):
+            ax = axes[i]
+            try:
+            # Pivot table for heatmap: Index=A_L2, Columns=A_G6, Values=Metric
+                pivot_table = self.bias_sensitivity_df.pivot(index='KG_Factor', columns='KL_Factor', values=metric)
+                
+                
+                sns.heatmap(pivot_table, ax=ax, annot=True, cmap="viridis",fmt='.3f' ,cbar=True )
+                ax.set_title(f'{metric} vs. Price Bias')
+                ax.set_xlabel('Price Bias Generator (K_G6)')
+                ax.set_ylabel('Price Bias Load (K_L2)')
+                # Ensure axis labels match the data ranges
+                ax.invert_yaxis()  # Often conventional for heatmaps derived from matrices
+            except Exception as e:
+                print(f"Could not plot heatmap for {metric}: {e}")
+                ax.set_title(f'{metric} (Plotting Error)')
+
         plt.tight_layout()
         if filename:
             plt.savefig(filename)
@@ -1029,9 +1452,8 @@ class Plotting_Class():
         else:
             plt.show()
 
-
 # ----- NEW Function to run the sensitivity analysis -----
-def run_sensitivity_analysis(input_data_template, opf_results, A_G6_values, A_L2_values):
+def run_risk_sensitivity_analysis(input_data_base: InputData, opf_results:Expando, A_G6_values:int, A_L2_values:int):
     """
     Runs the ContractNegotiation for different combinations of A_G6 and A_L2.
 
@@ -1045,7 +1467,7 @@ def run_sensitivity_analysis(input_data_template, opf_results, A_G6_values, A_L2
         pandas.DataFrame: DataFrame containing results for each parameter combination.
     """
     results_list = []
-    results_list_scenarios = []
+    earnings_list_scenarios = []
     current_input_data = input_data_template # Start with the template
     for a_g6 in tqdm(A_G6_values, desc="Iterating A_G6"):
         for a_l2 in tqdm(A_L2_values, desc="Iterating A_L2", leave=False):
@@ -1070,7 +1492,7 @@ def run_sensitivity_analysis(input_data_template, opf_results, A_G6_values, A_L2
                     'NashProductLog': contract_model.results.objective_value, # Gurobi obj value
                     'NashProduct': np.exp(contract_model.results.objective_value), # Actual Nash product
                 })
-                results_list_scenarios.append(pd.DataFrame({
+                earnings_list_scenarios.append(pd.DataFrame({
                     'A_G6': a_g6,
                     'A_L2': a_l2,
                     'Revenue_G6': contract_model.results.accumulated_revenue_G6,
@@ -1088,7 +1510,7 @@ def run_sensitivity_analysis(input_data_template, opf_results, A_G6_values, A_L2
                     'NashProductLog': np.nan,
                     'NashProduct': np.nan,
                 })
-                results_list_scenarios.append({
+                earnings_list_scenarios.append({
                     'A_G6': a_g6,
                     'A_L2': a_l2,
                     'Revenue_G6': np.nan,
@@ -1105,7 +1527,7 @@ def run_sensitivity_analysis(input_data_template, opf_results, A_G6_values, A_L2
                     'NashProductLog': np.nan,
                     'NashProduct': np.nan,
                 })
-                results_list_scenarios.append({
+                earnings_list_scenarios.append({
                     'A_G6': a_g6,
                     'A_L2': a_l2,
                     'Revenue_G6': np.nan,
@@ -1113,7 +1535,97 @@ def run_sensitivity_analysis(input_data_template, opf_results, A_G6_values, A_L2
                 })
 
 
-    return pd.DataFrame(results_list),results_list_scenarios
+    return pd.DataFrame(results_list),earnings_list_scenarios
+
+def _run_bias_sensitivity_bias(input_data_base: InputData, opf_results: Expando):
+    """
+    Performs sensitivity analysis on price bias factors (KG, KL).
+
+    Args:
+        input_data_base: The base InputData object with core parameters.
+        opf_results: The results object from the OptimalPowerFlow run.
+
+    Returns:
+        pandas.DataFrame: A DataFrame containing the sensitivity results
+                          (KG_Factor, KL_Factor, Optimal_S, Optimal_M).
+    """
+    print("\n--- Starting Price Bias Sensitivity Analysis ---")
+
+    # --- Calculate True Expected Price Sum (for scaling bias) ---
+    # Need access to _build_dataframe, can make it a static method or call it carefully
+ 
+    price_df_n3 = ContractNegotiation._build_dataframe(None, opf_results.price['N3'], 'price')
+   
+    price_n3_true = price_df_n3.values
+
+
+    # Ensure calculation works even with few scenarios/times
+    lambda_sum_true = price_n3_true.sum(axis=0) # Sum over time for each scenario
+    if lambda_sum_true.size == 0:
+         EP_lambda_sum_true = 0 # Handle case with no scenarios
+    else:
+        EP_lambda_sum_true = lambda_sum_true.mean()
+
+    if EP_lambda_sum_true == 0:
+        print("Warning: True Expected Sum of Prices (EP(λΣ)) is zero. Biases will be zero.")
+    else:
+        print(f"True Expected Sum of Prices (EP(λΣ)): {EP_lambda_sum_true:.4f}")
+
+    # --- Sensitivity Analysis Loop ---
+    # Define the bias factors relative to the expected price sum
+    # Use the factors from the input_data_base if stored, otherwise define here
+   
+    K_G6_factors = [-0.01, 0, 0.01]
+    K_L2_factors = [-0.01, 0, 0.01]
+
+    results_sensitivity = []
+    for kg_factor in K_G6_factors:
+        for kl_factor in K_L2_factors:
+            try:
+                # Avoid division by zero if EP_lambda_sum_true is zero
+                print(f"\nRunning Negotiation for KG factor={kg_factor} (Bias={(1+kg_factor)*EP_lambda_sum_true:.2f}), KL factor={kl_factor} (Bias={(1+kl_factor)*EP_lambda_sum_true:.2f})")
+                input_data_base.K_G6 = kg_factor # Replacing the K_G6 factor in the input data
+                input_data_base.K_L2 = kl_factor #Replacing the K_L2 factor in the input data
+                #try:
+                # Instantiate ContractNegotiation with current bias values
+                # Pass the base OPF results and the current biases
+                contract_model = ContractNegotiation(
+                    input_data_base, # Pass the base data object
+                    opf_results,     # Pass the results from the single OPF run
+                )
+
+                # Run the manual optimization to find S
+                contract_model.run() # Set to True if you want to see the plot
+
+                # Store results the amount to be changed ------ 300 !!!!!!!!!!!!!!!!!
+                results_sensitivity.append({
+                    'KG_Factor': kg_factor,
+                    'KL_Factor': kl_factor,
+                    'KG_Bias': (1+kg_factor)*EP_lambda_sum_true,
+                    'KL_Bias': (1+kl_factor)*EP_lambda_sum_true,
+                    'StrikePrice': contract_model.results.strike_price, # Store the optimal strike price S
+                    'Optimal_M': 300 # Store the fixed M used
+                })
+                if np.isnan(contract_model.results.strike_price):
+                        print(f" -> Negotiation failed or no feasible solution found.")
+                else:
+                    print(f" -> Optimal S: {contract_model.results.strike_price:.4f}, Optimal M: {300}")
+            
+            except Exception as e:
+                print(f" -> Error during negotiation for KG factor={kg_factor}, KL factor={kl_factor}: {e}")
+                # Store error or NaN
+                results_sensitivity.append({
+                    'KG_Factor': kg_factor,
+                    'KL_Factor': kl_factor,
+                    'KG_Bias': (1+kg_factor)*EP_lambda_sum_true,
+                    'KL_Bias': (1+kl_factor)*EP_lambda_sum_true,
+                    'Optimal_S': np.nan,
+                    'Optimal_M': np.nan
+                })
+         
+
+    print("\n--- Price Bias Sensitivity Analysis Complete ---")
+    return pd.DataFrame(results_sensitivity)
 
 
 # ----- Main Execution Block -----
@@ -1121,12 +1633,14 @@ if __name__ =='__main__':
 
     # --- Define Parameters and Ranges ---
     HOURS = 24
-    DAYS = 2
-    SCENARIOS = 20 # Keep small for faster testing, increase later
+    DAYS = 5
+    SCENARIOS = 50 # Keep small for faster testing, increase later
     
     # Define the ranges for risk aversion parameters
     A_G6_values = np.round(np.linspace(0.1, 0.9, 3),2)  # e.g., 5 values from 0.1 to 0.9
     A_L2_values = np.round(np.linspace(0.1, 0.9, 3),2)  # e.g., 5 values from 0.1 to 0.9
+    beta_L = 0.5 # Placeholder, will be updated in the loop
+    beta_G = 0.5 # Placeholder, will be updated in the loop
 
     # --- Load Data and Run OPF (Once) ---
     # Use placeholder beta values for the initial load_data call, 
@@ -1139,7 +1653,7 @@ if __name__ =='__main__':
      strikeprice_max,contract_amount_min,contract_amount_max,
      _, _, # Placeholder for A_L2, A_G6 from load_data
      K_L2,K_G6,alpha) = load_data(hours=HOURS, days=DAYS, scen=SCENARIOS, 
-                                  beta_L=0.5, beta_G=0.5) # Use placeholder betas
+                                  beta_L=beta_L, beta_G=beta_G) # Use placeholder betas
 
     # Create the InputData object template
     input_data_template = InputData(
@@ -1166,8 +1680,8 @@ if __name__ =='__main__':
         strikeprice_max = strikeprice_max,
         contract_amount_min = contract_amount_min,
         contract_amount_max = contract_amount_max,
-        A_L2 = 0.5, # Placeholder, will be updated in loop
-        A_G6 = 0.5, # Placeholder, will be updated in loop
+        A_L2 = beta_L, # Placeholder, will be updated in loop
+        A_G6 = beta_G, # Placeholder, will be updated in loop
         K_L2 = K_L2,
         K_G6 = K_G6,
         alpha = alpha
@@ -1178,26 +1692,68 @@ if __name__ =='__main__':
     opf_model.run()
     print("OPF run complete.")
     
+    contract_model = ContractNegotiation(input_data_template, opf_model.results)
+    contract_model.run() # Run the Gurobi optimization
+    contract_model.display_results()
+    contract_model.manual_optimization(plot=True)
+
+    # Create the instance - _build_statistics() is called here, calculating Zeta etc.
+    contract_plotter = ContractNegotiation(input_data_template, opf_model.results)
+
+    # Check the conditions
+    """ 
+      cond29, cond30 = contract_model.check_barter_conditions()
+
+    # You can now use the boolean values cond29 and cond30
+    if cond29 is not None and cond30 is not None:
+        if cond29 and cond30:
+            print("--> Expected barter set shape: Triangle (Fig 2)")
+        elif not cond30: # Condition 30 failure is key for Fig 3
+            print("--> Expected barter set shape: Threat Point (Fig 3)")
+        elif not cond29 and cond30: # Condition 29 failure is key for Fig 4
+            print("--> Expected barter set shape: Triangle (Fig 4)")
+        else: # Both fail?
+            print("--> Expected barter set shape: Undetermined (Both conditions fail?)")
+    else:
+        print("--> Could not determine expected barter set shape.")
+    """
+
+    # Call the method on the instance
+   # contract_plotter.plot_barter_set(case='fig2', filename='barter_set_fig2_method.png')
+   # contract_plotter.plot_barter_set(case='fig3', filename='barter_set_fig3_method.png')
+   # contract_plotter.plot_barter_set(case='fig4', filename='barter_set_fig4_method.png')
+
+
+
     # --- Run Sensitivity Analysis ---
     print("Starting sensitivity analysis for A_G6 and A_L2...")
-    sensitivity_results_df,sensitivity_earnings_df = run_sensitivity_analysis(
+    risk_sensitivity_results_df,sensitivity_earnings_df = run_risk_sensitivity_analysis(
         input_data_template, 
         opf_model.results, 
         A_G6_values, 
         A_L2_values
     )
     print("\nResults Summary:")
-    print(sensitivity_results_df)
+    print(risk_sensitivity_results_df)
+    print("\nEarnings Summary:")
+    print(sensitivity_earnings_df)
+
+    
+    bias_sensitivity_results_df = _run_bias_sensitivity_bias(input_data_template,  opf_model.results)
 
     # --- Plotting ---
-    Plot_obj= Plotting_Class(sensitivity_results_df,sensitivity_earnings_df)
+    Plot_obj= Plotting_Class(risk_sensitivity_results_df,sensitivity_earnings_df,bias_sensitivity_results_df,styles=None)
     print("\nPlotting results...")
     # Optional name for saving plots filename = "sensitivity_analysis.png"
+    # Plot Risk sensitivity results
     Plot_obj._plot_sensitivity_results()
 
-       # 2. Earnings Histograms
+    # Earnings Histograms
     print("\nPlotting earnings histograms...")
     Plot_obj._plot_earnings_histograms(
-        fixed_A_G6 = A_G6_values[0], # The A_G6 value we kept constant
+        fixed_A_G6 = A_G6_values[2], # The A_G6 value we kept constant
         A_L2_to_plot = A_L2_values.tolist() # The A_L2 values we varied
     )
+    # Plot bias sensitivity results
+    Plot_obj._plot_bias_sensitivity()
+  
