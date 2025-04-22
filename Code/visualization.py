@@ -19,6 +19,9 @@ class Plotting_Class:
         self.bias_sensitivity_df = bias_sensitivity_df
         self.styles = styles if styles else {}
 
+        self.plots_dir = os.path.join(os.path.dirname(__file__), 'Plots')
+        os.makedirs(self.plots_dir, exist_ok=True)
+
     def _plot_sensitivity_results(self,filename=None,new_data = None):
         """
         Plots the sensitivity analysis results using heatmaps.
@@ -68,10 +71,9 @@ class Plotting_Class:
 
         plt.tight_layout()
         if filename:
-            os.makedirs('Plots', exist_ok=True)
-            save_path = os.path.join('Plots', filename)
-            plt.savefig(save_path)
-            print(f"Plot saved to {save_path}")
+            filepath = os.path.join(self.plots_dir, filename)
+            plt.savefig(filepath, bbox_inches='tight', dpi=300)
+            print(f"Plot saved to {filepath}")
             plt.close(fig)
         else:
             plt.show()
@@ -97,6 +99,7 @@ class Plotting_Class:
         
         all_g6_values = np.concatenate([filtered_results['Revenue_G6'].values,self.cm_data.net_earnings_no_contract_G6_df.sum().values])
         all_l2_values = np.concatenate([filtered_results['Revenue_L2'].values,self.cm_data.net_earnings_no_contract_L2_df.sum().values])
+        
 
         # Create uniform bins based on global min and max
         bins = 19
@@ -121,6 +124,13 @@ class Plotting_Class:
         # Plot G6 Revenue Histogram
         for idx, a_l2 in enumerate(A_L2_to_plot):
             g6_values = filtered_results[filtered_results['A_L2'] == a_l2]['Revenue_G6'].values
+
+            # Expected G6 Revenue
+            G_6_expected = g6_values.mean()
+            # Calculate CVaR values 
+            cvar_g6 = calculate_cvar(g6_values, self.cm_data.alpha)
+            utility_g6 = (1-a_l2)*G_6_expected + a_l2*cvar_g6
+
             if len(g6_values) > 0:
                 current_color = colors[idx % len(colors)]  # Cycle through colors
                 print(f"\nPlotting histogram for A_L2={a_l2}")
@@ -133,11 +143,18 @@ class Plotting_Class:
                     color=current_color,
                     density=False
                 )
-                ax_g6.axvline(g6_values.mean()/1e5, linestyle="--", color=current_color, 
-                              label=f"A_L={a_l2} - Average Earnings: {g6_values.mean()/1e5:.2f}")
+                ax_g6.axvline(utility_g6/1e5, linestyle="--", color=current_color, 
+                              label=f"A_L={a_l2} - Utility: {utility_g6/1e5:.2f}")
 
             # Plot L2 Revenue Histogram with same color
             l2_values = filtered_results[filtered_results['A_L2'] == a_l2]['Revenue_L2'].values
+
+            # Expected L2 Revenue
+            l2_expected = g6_values.mean()
+            # Calculate CVaR values 
+            
+            cvar_l2 = calculate_cvar(l2_values, self.cm_data.alpha)
+            utility_l2 = (1-a_l2)*l2_expected + a_l2*cvar_l2
             if len(l2_values) > 0:
                 ax_l2.hist(
                     l2_values / 1e5,
@@ -147,8 +164,8 @@ class Plotting_Class:
                     color=current_color,
                     density=False
                 )
-                ax_l2.axvline(l2_values.mean()/1e5, linestyle="--", color=current_color, 
-                              label=f"A_L={a_l2} - Average Earnings: {l2_values.mean()/1e5:.2f}")
+                ax_l2.axvline(utility_l2/1e5, linestyle="--", color=current_color, 
+                              label=f"A_L={a_l2} - Utility : {utility_l2/1e5:.2f}")
         
         ax_g6.hist(self.cm_data.net_earnings_no_contract_G6_df.sum() / 1e5,bins=bin_edges_g6,alpha=0.4,label=f'No Contract',density=False,color ='black')    
         #ax_g6.axvline(self.cm_data.net_earnings_no_contract_G6_df.sum().mean() / 1e5, linestyle="--",color ='black', label=f"No Contract - Average Earnings: {self.cm_data.net_earnings_no_contract_G6_df.sum().mean() / 1e5:.2f}")
@@ -188,10 +205,9 @@ class Plotting_Class:
 
         plt.tight_layout()
         if filename:
-            os.makedirs('Plots', exist_ok=True)
-            save_path = os.path.join('Plots', filename)
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"Plot saved to {save_path}")
+            filepath = os.path.join(self.plots_dir, filename)
+            plt.savefig(filepath, bbox_inches='tight', dpi=300)
+            print(f"Plot saved to {filepath}")
             plt.close(fig)
         else:
             plt.show()
@@ -227,33 +243,40 @@ class Plotting_Class:
 
 
         # Calculate CVaR values (constant for all risk aversion values)
-        cvar_g6 = calculate_cvar(self.cm_data.net_earnings_no_contract_G6, self.cm_data.alpha)
-        cvar_l2 = calculate_cvar(self.cm_data.net_earnings_no_contract_L2, self.cm_data.alpha)
-        mean_g6 = self.cm_data.net_earnings_no_contract_G6.mean()
-        mean_l2 = self.cm_data.net_earnings_no_contract_L2.mean()
+        cvar_g6_no_contract = calculate_cvar(self.cm_data.net_earnings_no_contract_G6, self.cm_data.alpha)
+        cvar_l2_no_contract = calculate_cvar(self.cm_data.net_earnings_no_contract_L2, self.cm_data.alpha)
+        mean_g6_contract = self.cm_data.net_earnings_no_contract_G6.mean()
+        mean_l2_no_contract = self.cm_data.net_earnings_no_contract_L2.mean()
 
         # Calculate threat points for different risk aversion values
         for A in A_L2_to_plot:
-            zeta_l2 = (1-A)*mean_l2 + A*cvar_l2
-            zeta_l2_values.append(zeta_l2/1e5)
-        zeta_g6 = ((1-fixed_A_G6)*mean_g6 + fixed_A_G6*cvar_g6)/1e5
+            zeta_l2 = (1-A)*mean_l2_no_contract + A*cvar_l2_no_contract
+            zeta_l2_values.append(zeta_l2)
+        zeta_g6 = ((1-fixed_A_G6)*mean_g6_contract + fixed_A_G6*cvar_g6_no_contract)
         # Plot G6 Revenue Histogram
         for idx, a_l2 in enumerate(A_L2_to_plot):
             g6_values = filtered_results[filtered_results['A_L2'] == a_l2]['Revenue_G6'].values
+            current_color = colors[idx % len(colors)]  # Cycle through colors
+
             if len(g6_values) > 0:
-                current_color = colors[idx % len(colors)]  # Cycle through colors
-                ax_g6.axvline(g6_values.mean()/1e5, linestyle="-", color=current_color, 
-                              label=f"A_L={a_l2} - Average Earnings: {g6_values.mean()/1e5:.2f}")
+                expected_g6 = g6_values.mean()
+                cvar_g6 = calculate_cvar(g6_values, self.cm_data.alpha)
+                utility_g6 = (1-fixed_A_G6)*expected_g6 + fixed_A_G6*cvar_g6
+                ax_g6.axvline(utility_g6/1e5, linestyle="-", color=current_color, 
+                              label=f"A_L={a_l2} - Utility: {utility_g6/1e5:.2f}")
             # Plot L2 Revenue Histogram with same color
             l2_values = filtered_results[filtered_results['A_L2'] == a_l2]['Revenue_L2'].values
             if len(l2_values) > 0:
-                ax_l2.axvline(l2_values.mean()/1e5, linestyle="-", color=current_color, 
-                              label=f"A_L={a_l2} - Average Earnings: {l2_values.mean()/1e5:.2f}")
-                ax_l2.axvline(zeta_l2_values[idx], linestyle="--", color=current_color, label=f"A_L={a_l2:.2f} - Threat= {zeta_l2_values[idx]:.2f} ")
+                expected_l2 = l2_values.mean()
+                cvar_l2 = calculate_cvar(l2_values, self.cm_data.alpha)
+                utility_l2 = (1-a_l2)*expected_l2 + a_l2*cvar_l2
+                ax_l2.axvline(utility_l2/1e5, linestyle="-", color=current_color, 
+                              label=f"A_L={a_l2} - Utility: {utility_l2/1e5:.2f}")
+                ax_l2.axvline(zeta_l2_values[idx]/1e5, linestyle="--", color=current_color, label=f"A_L={a_l2:.2f} - Threat= {zeta_l2_values[idx]/1e5:.2f} ")
 
         
-        #ax_g6.axvline(self.cm_data.net_earnings_no_contract_G6_df.sum().mean() / 1e5, linestyle="--",color ='black', label=f"No Contract - Average Earnings: {self.cm_data.net_earnings_no_contract_G6_df.sum().mean() / 1e5:.2f}")
-        ax_g6.axvline(zeta_g6, linestyle="--", color='black', label=f"Threat Point: {zeta_g6:.2f}")
+        #G6 Subplot configuration
+        ax_g6.axvline(zeta_g6/1e5, linestyle="--", color='black', label=f"Threat Point: {zeta_g6/1e5:.2f}")
         ax_g6.set_title(f'Generator (G6) Threatpoint\n(A_G6 = {fixed_A_G6}) vs. L2 Risk Aversion')
         ax_g6.set_xlabel('Generator Revenue ($ x 10^5)')
         # Modify legend to have two columns with specific ordering
@@ -270,7 +293,7 @@ class Plotting_Class:
         ax_g6.grid(True, axis='y', linestyle='--', alpha=0.7)
 
         #ax_l2.axvline(self.cm_data.net_earnings_no_contract_L2_df.sum().mean() / 1e5, linestyle="--",color ='black', label=f"No Contract - Average Earnings: {self.cm_data.net_earnings_no_contract_L2_df.sum().mean() / 1e5:.2f}")   
- 
+        #L2 Subplot configuration
         ax_l2.set_title(f'Load (L2) Threatpoints vs \n(A_G6 = {fixed_A_G6})')
         ax_l2.set_xlabel('Load Revenue ($ x 10^5)')
         # Apply same legend formatting to L2 plot
@@ -288,13 +311,14 @@ class Plotting_Class:
 
         plt.tight_layout()
         if filename:
-            os.makedirs('Plots', exist_ok=True)
-            save_path = os.path.join('Plots', filename)
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"Plot saved to {save_path}")
+            filepath = os.path.join(self.plots_dir, filename)
+            plt.savefig(filepath, bbox_inches='tight', dpi=300)
+            print(f"Plot saved to {filepath}")
             plt.close(fig)
         else:
             plt.show()
+        print(f"Plot saved t bla bla")     
+
 
     def _plot_bias_sensitivity(self, filename=None):
         
@@ -335,14 +359,12 @@ class Plotting_Class:
 
         plt.tight_layout()
         if filename:
-            os.makedirs('Plots', exist_ok=True)
-            save_path = os.path.join('Plots', filename)
-            plt.savefig(save_path)
-            print(f"Plot saved to {save_path}")
+            filepath = os.path.join(self.plots_dir, filename)
+            plt.savefig(filepath, bbox_inches='tight', dpi=300)
+            print(f"Plot saved to {filepath}")
             plt.close(fig)
         else:
             plt.show()
-
 
     def _plot_no_contract(self, filename=None):
         """Plots histograms of no-contract revenues and threat point evolution."""
@@ -413,10 +435,10 @@ class Plotting_Class:
 
 
         if filename:
-            os.makedirs('Plots', exist_ok=True)
-            save_path = os.path.join('Plots', filename)
-            fig1.savefig(save_path.replace('.', '_hist.'))
-            print(f"Plots saved to {save_path}")
+            filepath = os.path.join(self.plots_dir, filename)
+            print(f"Plot saved to {filepath}")
+            fig1.savefig(filepath.replace('.', '_hist.'))
+            print(f"Plots saved to {filepath}")
             plt.close(fig1)
         else:
             plt.show()

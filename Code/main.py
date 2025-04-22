@@ -18,9 +18,9 @@ from sensitivity_analysis import run_risk_sensitivity_analysis, run_bias_sensiti
 from contract_negotiation import ContractNegotiation
 def main():
     # Define simulation parameters
-    HOURS = 24 # Number of hours in a day
-    DAYS = 30 # Number of days in the simulation (June - 30 days)
-    SCENARIOS = 100
+    HOURS = 12 # Number of hours in a day
+    DAYS = 5 # Number of days in the simulation (June - 30 days)
+    SCENARIOS = 25
     
     # Define risk aversion parameter ranges
     #A_G6_values = np.insert(np.round(np.linspace(0.1, 0.9, 3), 2), 0, 0)
@@ -84,24 +84,20 @@ def main():
     opf_model.run()
     print("OPF simulation complete.")
 
-    # Run Contract Negotiation
-    print("\nStarting contract negotiation...")
+    # Run Contract Negotiation with Gurobi
+    print("\nStarting contract negotiation with Gurobi...")
     contract_model = ContractNegotiation(input_data, opf_model.results)
     contract_model.run()
     contract_model.display_results()
-    print("Contract negotiation complete.")
-    
-    # Run batch manual optimization for different risk aversion values
-    contract_model.batch_manual_optimization(A_G6_values, A_L2_values, filename=f'batch_manual_optimization')
+    print("Gurobi optimization complete.")
+    input_data.strikeprice_min = 20
+    input_data.strikeprice_max = 21
+    contract_model = ContractNegotiation(input_data, opf_model.results)
+    contract_model.manual_optimization(plot=True)
 
-    contract_model.manual_optimization(plot=True,filename=f"manual_optimization_AG6_{beta_G:.1f}_AL2_{beta_L:.1f}.png")
-    
-    #contract_model.data.strikeprice_min =20
-    #contract_model.data.strikeprice_max = 21.5
-    #contract_model.manual_optimization(plot=True,filename=f"manual_optimization_AG6_{beta_G:.1f}_AL2_{beta_L:.1f}_closeup.png")
-
-    
-    print("Contract negotiation complete.")
+    # Run Contract Negotiation with SciPy
+    #print("\nStarting contract negotiation with SciPy...")
+    #scipy_results = contract_model.scipy_optimization()
 
     # Run Risk Sensitivity Analysis
     print("\nStarting risk sensitivity analysis (No Monte Carlo)...")
@@ -132,8 +128,10 @@ def main():
         bias_sensitivity_results
     )
 
-    plot_obj._plot_no_contract(filename="no_contract.png")
-    #plot_obj._plot_expected_versus_threatpoint(fixed_A_G6=A_G6_values[2],A_L2_to_plot=A_L2_values.tolist())
+    #plot_obj._plot_no_contract(
+        #filename="no_contract.png"
+    #    )
+    plot_obj._plot_expected_versus_threatpoint(fixed_A_G6=A_G6_values[3],A_L2_to_plot=A_L2_values.tolist())
 
     # Plot Risk Sensitivity Results
     plot_obj._plot_sensitivity_results(
@@ -142,7 +140,7 @@ def main():
     #plot_obj._plot_sensitivity_results(filename="risk_sensitivity_monte.png",new_data = risk_sensitivity_results_monte)
 
     # Plot Earnings Histograms
-    plot_obj._plot_earnings_histograms(fixed_A_G6=A_G6_values[2],A_L2_to_plot=A_L2_values.tolist(),
+    plot_obj._plot_earnings_histograms(fixed_A_G6=A_G6_values[3],A_L2_to_plot=A_L2_values.tolist(),
         filename="earnings_distribution.png"
     )
     """
