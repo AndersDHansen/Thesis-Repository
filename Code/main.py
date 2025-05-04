@@ -16,19 +16,33 @@ from power_flow import OptimalPowerFlow
 from visualization import Plotting_Class
 from sensitivity_analysis import run_risk_sensitivity_analysis, run_bias_sensitivity_analysis
 from contract_negotiation import ContractNegotiation
-def main():
-    # Define simulation parameters
-    HOURS = 12 # Number of hours in a day
-    DAYS = 5 # Number of days in the simulation (June - 30 days)
-    SCENARIOS = 25
+
+def run_contract_negotiation(input_data: InputData, opf_results, old_obj_func: bool, 
+                           A_G6_values: np.ndarray, A_L2_values: np.ndarray) -> tuple:
+    """Run contract negotiation and sensitivity analysis with given OPF results."""
+    # Run Contract Negotiation
+    contract_model = ContractNegotiation(input_data, opf_results, old_obj_func=old_obj_func)
+    contract_model.run()
     
-    # Define risk aversion parameter ranges
-    #A_G6_values = np.insert(np.round(np.linspace(0.1, 0.9, 3), 2), 0, 0)
-    #A_L2_values = np.insert(np.round(np.linspace(0.1, 0.9, 3), 2), 0, 0)
-    A_G6_values = np.round(np.linspace(0 ,1, 4), 2)
-    A_L2_values = np.round(np.linspace(0, 1, 4), 2)
-    beta_L = 0.5  # Initial risk aversion
-    beta_G = 0.5 # Initial risk aversion
+    # Run Sensitivity Analyses
+    risk_sensitivity_results, earnings_sensitivity = run_risk_sensitivity_analysis(
+        input_data, opf_results, A_G6_values, A_L2_values
+    )
+    
+    bias_sensitivity_results = run_bias_sensitivity_analysis(input_data, opf_results)
+    
+    return contract_model, risk_sensitivity_results, earnings_sensitivity, bias_sensitivity_results
+
+
+
+def main():    
+    # Define simulation parameters
+    HOURS = 24
+    DAYS = 5
+    SCENARIOS = 25
+    A_L2 = 0.5 # Initial risk aversion
+    A_G6 = 0.5 # Initial risk aversion
+    
 
     # Load data and create InputData object 
     print("Loading data and preparing for simulation...")
@@ -42,8 +56,8 @@ def main():
         hours=HOURS,
         days=DAYS,
         scen=SCENARIOS,
-        beta_L=beta_L, #A_L2_value,
-        beta_G=beta_G #A_G6_value,
+        A_G6=A_G6, #A_L2_value,
+        A_L2=A_L2 #A_G6_value,
     )
 
     # Create InputData object
@@ -78,82 +92,85 @@ def main():
         alpha=alpha
     )
 
-    # Run Optimal Power Flow
-    print("\nRunning Optimal Power Flow simulation...")
+     # Define risk aversion parameters for both objective functions
+    
+    old_obj_params = {
+        'A_G6_values': np.array([0.5, 1.0, 1.5]),  # A >= 0
+        'A_L2_values': np.array([0.5, 1.0, 1.5])
+    }
+    
+    new_obj_params = {
+        'A_G6_values': np.round(np.linspace(0.1, 0.9, 3), 2),  # A in [0,1]
+        'A_L2_values': np.round(np.linspace(0.1, 0.9, 3), 2)
+    }
+
+      # Run OPF
     opf_model = OptimalPowerFlow(input_data)
     opf_model.run()
-    print("OPF simulation complete.")
+    opf_results = opf_model.results
 
-    # Run Contract Negotiation with Gurobi
-    print("\nStarting contract negotiation with Gurobi...")
-    contract_model = ContractNegotiation(input_data, opf_model.results)
-    contract_model.run()
-    contract_model.display_results()
-    print("Gurobi optimization complete.")
-    input_data.strikeprice_min = 20
-    input_data.strikeprice_max = 21
-    contract_model = ContractNegotiation(input_data, opf_model.results)
-    contract_model.manual_optimization(plot=True)
-
-    # Run Contract Negotiation with SciPy
-    #print("\nStarting contract negotiation with SciPy...")
-    #scipy_results = contract_model.scipy_optimization()
-
-    # Run Risk Sensitivity Analysis
-    print("\nStarting risk sensitivity analysis (No Monte Carlo)...")
-    risk_sensitivity_results, earnings_sensitivity = run_risk_sensitivity_analysis(
+    
+    # Run contract negotiation for both objective functions with same OPF results
+    print("\nRunning simulation with original objective function (E + A*CVaR)...")
+    old_results = run_contract_negotiation(
+        input_data, 
+        opf_results,
+        True, 
+        old_obj_params['A_G6_values'], 
+        old_obj_params['A_L2_values']
+    )
+    
+    print("\nRunning simulation with modified objective function ((1-A)*E + A*CVaR)...")
+    new_results = run_contract_negotiation(
         input_data,
-        opf_model.results,
-        A_G6_values,
-        A_L2_values,
+        opf_results,
+        False,
+        new_obj_params['A_G6_values'],
+        new_obj_params['A_L2_values']
+    )
+    
+    # Create comparison plots
+    print("\nGenerating comparison plots...")
+    
+    # Plot results for original objective function
+    plot_obj_old = Plotting_Class(
+        old_results[0].data,
+        old_results[1],
+        old_results[2],
+        old_results[3]
+    )
+    
+    # Plot results for new objective function
+    plot_obj_new = Plotting_Class(
+        new_results[0].data,
+        new_results[1],
+        new_results[2],
+        new_results[3]
     )
 
-    #risk_sensitivity_results_monte, earnings_sensitivity_monte = run_risk_sensitivity_analysis(input_data,opf_model.results,A_G6_values,A_L2_values,Monte_Carlo =True)
-
-    print("\nRisk sensitivity analysis complete.")
-    print("\nStarting price bias sensitivity analysis...")
-    bias_sensitivity_results = run_bias_sensitivity_analysis(input_data,opf_model.results)
-    print(earnings_sensitivity)
-
-    # Run Bias Sensitivity Analysis
- 
-    print("\nPrice bias sensitivity analysis complete.")
-    print(bias_sensitivity_results)
-
-    # Create plots
-    print("\nGenerating visualization plots...")
-    plot_obj = Plotting_Class(contract_model.data,
-        risk_sensitivity_results,
-        earnings_sensitivity,
-        bias_sensitivity_results
-    )
-
-    #plot_obj._plot_no_contract(
-        #filename="no_contract.png"
-    #    )
-    plot_obj._plot_expected_versus_threatpoint(fixed_A_G6=A_G6_values[3],A_L2_to_plot=A_L2_values.tolist())
-
-    # Plot Risk Sensitivity Results
-    plot_obj._plot_sensitivity_results(
-        filename="risk_sensitivity.png"
+        
+       # Generate plots with distinctive filenames
+    for plot_obj, obj_type, params in [
+        (plot_obj_old, 'original', old_obj_params),
+        (plot_obj_new, 'modified', new_obj_params)
+    ]:
+        # Risk sensitivity plots
+        plot_obj._plot_sensitivity_results(
+            filename=f"risk_sensitivity_{obj_type}.png"
         )
-    #plot_obj._plot_sensitivity_results(filename="risk_sensitivity_monte.png",new_data = risk_sensitivity_results_monte)
-
-    # Plot Earnings Histograms
-    plot_obj._plot_earnings_histograms(fixed_A_G6=A_G6_values[3],A_L2_to_plot=A_L2_values.tolist(),
-        filename="earnings_distribution.png"
-    )
-    """
-    plot_obj._plot_earnings_histograms(
-        fixed_A_G6=A_G6_values[1],
-        A_L2_to_plot=A_L2_values.tolist(),
-        filename="earnings_distribution_monte.png",
-        new_data = earnings_sensitivity_monte
-    )
-    """
-    # Plot Bias Sensitivity Results
-    plot_obj._plot_bias_sensitivity(filename=f"bias_sensitivity_AG6_{A_G6_values[0]:.1f}-{A_G6_values[-1]:.1f}_AL2_{A_L2_values[0]:.1f}-{A_L2_values[-1]:.1f}.png")
-    #print("Visualization complete. Results saved to PNG files.")
-
+        
+        # Earnings distribution plots
+        plot_obj._plot_earnings_histograms(
+            fixed_A_G6=params['A_G6_values'][1],  # Use middle value
+            A_L2_to_plot=params['A_L2_values'].tolist(),
+            filename=f"earnings_distribution_{obj_type}.png"
+        )
+        
+        # Bias sensitivity plots
+        plot_obj._plot_bias_sensitivity(
+            filename=f"bias_sensitivity_{obj_type}.png"
+        )
+      
+    
 if __name__ == "__main__":
     main()

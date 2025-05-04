@@ -7,12 +7,14 @@ import pandas as pd
 from scipy.stats import gaussian_kde, skew, kurtosis, norm
 from scipy.optimize import minimize
 from scipy.optimize import LinearConstraint
+from scipy.optimize import NonlinearConstraint
+
 
 import matplotlib.pyplot as plt
 import os
 
 
-class Expando:
+class Expando: 
     """A small utility class which can have attributes set dynamically.
 
     This class provides a flexible container that allows dynamic attribute
@@ -57,7 +59,7 @@ def build_dataframe(data: Dict[tuple, Any], input_name: str) -> pd.DataFrame:
     
     return df_pivot
 
-def calculate_cvar(earnings: np.ndarray, alpha: float) -> float:
+def calculate_cvar_left(earnings: np.ndarray, alpha: float) -> float:
     """Calculate the Conditional Value at Risk (CVaR) for given earnings.
     
     Parameters
@@ -75,10 +77,31 @@ def calculate_cvar(earnings: np.ndarray, alpha: float) -> float:
     earnings = np.array(earnings)
     earnings_sorted = np.sort(earnings)
     var_threshold_lower = np.percentile(earnings_sorted, (1-alpha)*100)
-    tail_losses = earnings_sorted[earnings_sorted <= var_threshold_lower]
-    cvar_loss = np.mean(tail_losses)
+    left_tail = earnings_sorted[earnings_sorted <= var_threshold_lower]
+    cvar = np.mean(left_tail)
+    return cvar
+
+def calculate_cvar_right(earnings: np.ndarray, alpha: float) -> float:
+    """Calculate the Conditional Value at Risk (CVaR) for given earnings.
     
-    return cvar_loss
+    Parameters
+    ----------
+    earnings : ndarray
+        Array of earnings values
+    alpha : float
+        Confidence level for CVaR calculation, between 0 and 1
+    
+    Returns
+    -------
+    float
+        Calculated CVaR value
+    """
+    earnings = np.array(earnings)
+    earnings_sorted = np.sort(earnings)
+    var_threshold_lower = np.percentile(earnings_sorted, alpha*100)
+    right_tail = earnings_sorted[earnings_sorted >= var_threshold_lower]
+    cvar = np.mean(right_tail)
+    return cvar
 
 def simulate_price_scenarios(
     price_data: np.ndarray,
@@ -180,6 +203,7 @@ def analyze_price_distribution(
     return results
 
 def optimize_nash_product(
+    old_obj_func:bool,
     price_data: np.ndarray,
     A_G6: float,
     A_L2: float,
@@ -225,22 +249,54 @@ def optimize_nash_product(
         Scen_revenue_L2 = np.sum(SML2, axis=0) + net_earnings_no_contract_L2
         
         # Calculate CVaR for both parties
-        CVaRG6 = calculate_cvar(Scen_revenue_G6, alpha)
-        CVaRL2 = calculate_cvar(Scen_revenue_L2, alpha)
+        CVaRG6 = calculate_cvar_left(Scen_revenue_G6, alpha)
+        CVaRL2 = calculate_cvar_left(Scen_revenue_L2, alpha)
         
         # Calculate utilities
-        UG6 = (1 - A_G6) * np.mean(Scen_revenue_G6) + A_G6 * CVaRG6
-        UL2 = (1 - A_L2) * np.mean(Scen_revenue_L2) + A_L2 * CVaRL2
+        if old_obj_func == True:
+            if A_G6 == 0 and A_L2 != 0:
+                UG6 = np.mean(Scen_revenue_G6)
+                UL2 = np.mean(Scen_revenue_L2) + A_L2 * CVaRL2
+            elif A_G6 != 0 and A_L2 == 0:
+                UG6 = np.mean(Scen_revenue_G6) + A_G6 * CVaRG6
+                UL2 = np.mean(Scen_revenue_L2)
+            elif A_G6 == 0 and A_L2 == 0:
+                UG6 = np.mean(Scen_revenue_G6)
+                UL2 = np.mean(Scen_revenue_L2)
+            else:
+                UG6 = np.mean(Scen_revenue_G6) + A_G6 * CVaRG6
+                UL2 = np.mean(Scen_revenue_L2) + A_L2 * CVaRL2
+        else:
+            if  A_G6 == 0 and A_L2 != 0:
+                UG6 = np.mean(Scen_revenue_G6)
+                UL2 = (1 - A_L2) * np.mean(Scen_revenue_L2) + A_L2 * CVaRL2
+            elif  A_G6 != 0 and A_L2 == 0:
+                UG6 = (1 - A_G6) * np.mean(Scen_revenue_G6) + A_G6 * CVaRG6
+                UL2 = np.mean(Scen_revenue_L2)
+            elif A_G6 == 0 and A_L2 == 0:
+                UG6 = np.mean(Scen_revenue_G6)
+                UL2 = np.mean(Scen_revenue_L2)
+            else:
+                UG6 = (1 - A_G6) * np.mean(Scen_revenue_G6) + A_G6 * CVaRG6
+                UL2 = (1 - A_L2) * np.mean(Scen_revenue_L2) + A_L2 * CVaRL2
+           
         
-        # Calculate Nash product
-        nash_prod = (UG6 - Zeta_G6) * (UL2 - Zeta_L2)
+        # Calculate Nash product ( Negative for minimization)
+        nash_prod = ((UG6 - Zeta_G6) * (UL2 - Zeta_L2))
         
-        return UG6, UL2, nash_prod
+        return UG6,UL2, nash_prod
 
     def objective(x):
         S, M = x
-        _, _, nash_prod = calculate_utilities(S, M)
+        UG6,UL2,nash_prod = calculate_utilities(S, M)
+
+        log_term_G6 = np.log(np.maximum(UG6 - Zeta_G6, 1e-10))
+        log_term_L2 = np.log(np.maximum(UL2 - Zeta_L2, 1e-10))
+        #return -(log_term_G6 + log_term_L2)  # Return negative for minimization
         return -nash_prod  # Return negative for minimization
+
+    # Constraints: UG6 - Zeta_G6 > 0, UL2 - Zeta_L2 > 0
+
     
     # Define bounds for variables [S, M]
     bounds = [(strikeprice_min, strikeprice_max), (contract_amount_min, contract_amount_max)]
@@ -248,17 +304,14 @@ def optimize_nash_product(
     # Initial guess: midpoint of bounds
     x0 = [(strikeprice_min + strikeprice_max)/2, (contract_amount_min + contract_amount_max)/2]
     
-
-    #Set up correct bounds! 
-
-    
     # Optimize using SLSQP which handles bounds well
     result = minimize(
         objective,
         x0,
         bounds=bounds,
-        method='Newton-CG',
-        options={'ftol': 1e-8, 'maxiter': 1000,'disp': True}  # Add more debug info},
+        method='trust-constr',
+        hess=None,
+        options={ 'maxiter': 2000,'disp': True}  # Add more debug info},
     )
     
     if result.success:

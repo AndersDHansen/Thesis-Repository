@@ -7,7 +7,7 @@ from tqdm import tqdm
 from contract_negotiation import ContractNegotiation
 from utils import build_dataframe
 
-def run_risk_sensitivity_analysis(input_data_base, opf_results, A_G6_values, A_L2_values,Monte_Carlo = False):
+def run_risk_sensitivity_analysis(input_data_base, opf_results, A_G6_values, A_L2_values,old_obj_func = False):
     """
     Runs the ContractNegotiation for different combinations of A_G6 and A_L2.
 
@@ -31,7 +31,7 @@ def run_risk_sensitivity_analysis(input_data_base, opf_results, A_G6_values, A_L
 
             try:
                 # Run contract negotiation
-                contract_model = ContractNegotiation(current_input_data, opf_results, Monte_Carlo=Monte_Carlo)
+                contract_model = ContractNegotiation(current_input_data, opf_results, old_obj_func=old_obj_func)
                 contract_model.run()
                 
                 # Store results
@@ -43,7 +43,9 @@ def run_risk_sensitivity_analysis(input_data_base, opf_results, A_G6_values, A_L
                     'Utility_G6': contract_model.results.utility_G6,
                     'Utility_L2': contract_model.results.utility_L2,
                     'NashProductLog': contract_model.results.objective_value,
-                    'NashProduct': np.exp(contract_model.results.objective_value)
+                    'NashProduct': np.exp(contract_model.results.objective_value),
+                    'ThreatPoint_G6': contract_model.data.Zeta_G6,
+                    'ThreatPoint_L2': contract_model.data.Zeta_L2,
                 })
 
                 earnings_list_scenarios.append(pd.DataFrame({
@@ -82,7 +84,9 @@ def run_risk_sensitivity_analysis(input_data_base, opf_results, A_G6_values, A_L
                     'Utility_G6': np.nan,
                     'Utility_L2': np.nan,
                     'NashProductLog': np.nan,
-                    'NashProduct': np.nan
+                    'NashProduct': np.nan,
+                    'ThreatPoint_G6': np.nan,
+                    'ThreatPoint_L2': np.nan,
                 })
                 earnings_list_scenarios.append({
                     'A_G6': a_g6,
@@ -93,7 +97,7 @@ def run_risk_sensitivity_analysis(input_data_base, opf_results, A_G6_values, A_L
 
     return pd.DataFrame(results_list), earnings_list_scenarios
 
-def run_bias_sensitivity_analysis(input_data_base, opf_results):
+def run_bias_sensitivity_analysis(input_data_base, opf_results,old_obj_func = False):
     """
     Performs sensitivity analysis on price bias factors (KG, KL).
 
@@ -135,7 +139,7 @@ def run_bias_sensitivity_analysis(input_data_base, opf_results):
                 input_data_base.K_L2 = kl_factor
 
                 # Run contract negotiation
-                contract_model = ContractNegotiation(input_data_base, opf_results)
+                contract_model = ContractNegotiation(input_data_base, opf_results,old_obj_func=old_obj_func)
                 contract_model.run()
 
                 # Store results
@@ -145,7 +149,9 @@ def run_bias_sensitivity_analysis(input_data_base, opf_results):
                     'KG_Bias': (1+kg_factor)*EP_lambda_sum_true,
                     'KL_Bias': (1+kl_factor)*EP_lambda_sum_true,
                     'StrikePrice': contract_model.results.strike_price,
-                    'ContractAmount': contract_model.results.contract_amount
+                    'ContractAmount': contract_model.results.contract_amount,
+                    'threat_point_G6': contract_model.data.Zeta_G6,
+                    'threat_point_L2': contract_model.data.Zeta_L2,
                 })
 
                 if np.isnan(contract_model.results.strike_price):

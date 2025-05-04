@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import os
-from utils import calculate_cvar
+from utils import calculate_cvar_left
 
 class Plotting_Class:
     """
@@ -43,6 +43,7 @@ class Plotting_Class:
         axes = axes.flatten()
 
         titles = ['Strike Price S', 'Contract Amount M']
+        fig.suptitle('Risk New Objective Analysis', fontsize=16)
         
         for i, metric in enumerate(metrics):
             ax = axes[i]
@@ -98,7 +99,7 @@ class Plotting_Class:
             return
         
         all_g6_values = np.concatenate([filtered_results['Revenue_G6'].values,self.cm_data.net_earnings_no_contract_G6_df.sum().values])
-        all_l2_values = np.concatenate([filtered_results['Revenue_L2'].values,self.cm_data.net_earnings_no_contract_L2_df.sum().values])
+        all_l2_values = np.concatenate([filtered_results['Revenue_L2'].values,self.cm_data.net_earnings_no_contract_L2])
         
 
         # Create uniform bins based on global min and max
@@ -128,7 +129,7 @@ class Plotting_Class:
             # Expected G6 Revenue
             G_6_expected = g6_values.mean()
             # Calculate CVaR values 
-            cvar_g6 = calculate_cvar(g6_values, self.cm_data.alpha)
+            cvar_g6 = calculate_cvar_left(g6_values, self.cm_data.alpha)
             utility_g6 = (1-a_l2)*G_6_expected + a_l2*cvar_g6
 
             if len(g6_values) > 0:
@@ -153,7 +154,7 @@ class Plotting_Class:
             l2_expected = g6_values.mean()
             # Calculate CVaR values 
             
-            cvar_l2 = calculate_cvar(l2_values, self.cm_data.alpha)
+            cvar_l2 = calculate_cvar_left(l2_values, self.cm_data.alpha)
             utility_l2 = (1-a_l2)*l2_expected + a_l2*cvar_l2
             if len(l2_values) > 0:
                 ax_l2.hist(
@@ -185,7 +186,7 @@ class Plotting_Class:
                     framealpha=0.8)
         ax_g6.grid(True, axis='y', linestyle='--', alpha=0.7)
 
-        ax_l2.hist(self.cm_data.net_earnings_no_contract_L2_df.sum() / 1e5,bins=bin_edges_l2,alpha=0.4,label=f'No Contract',density=False, color ='black')
+        ax_l2.hist(self.cm_data.net_earnings_no_contract_L2/ 1e5,bins=bin_edges_l2,alpha=0.4,label=f'No Contract',density=False, color ='black')
         #ax_l2.axvline(self.cm_data.net_earnings_no_contract_L2_df.sum().mean() / 1e5, linestyle="--",color ='black', label=f"No Contract - Average Earnings: {self.cm_data.net_earnings_no_contract_L2_df.sum().mean() / 1e5:.2f}")    
         ax_l2.set_title(f'Load (L2) Revenue Distribution\n(A_G6 = {fixed_A_G6})')
         ax_l2.set_xlabel('Load Revenue ($ x 10^5)')
@@ -243,8 +244,8 @@ class Plotting_Class:
 
 
         # Calculate CVaR values (constant for all risk aversion values)
-        cvar_g6_no_contract = calculate_cvar(self.cm_data.net_earnings_no_contract_G6, self.cm_data.alpha)
-        cvar_l2_no_contract = calculate_cvar(self.cm_data.net_earnings_no_contract_L2, self.cm_data.alpha)
+        cvar_g6_no_contract = calculate_cvar_left(self.cm_data.net_earnings_no_contract_G6, self.cm_data.alpha)
+        cvar_l2_no_contract = calculate_cvar_left(self.cm_data.net_earnings_no_contract_L2, self.cm_data.alpha)
         mean_g6_contract = self.cm_data.net_earnings_no_contract_G6.mean()
         mean_l2_no_contract = self.cm_data.net_earnings_no_contract_L2.mean()
 
@@ -260,7 +261,7 @@ class Plotting_Class:
 
             if len(g6_values) > 0:
                 expected_g6 = g6_values.mean()
-                cvar_g6 = calculate_cvar(g6_values, self.cm_data.alpha)
+                cvar_g6 = calculate_cvar_left(g6_values, self.cm_data.alpha)
                 utility_g6 = (1-fixed_A_G6)*expected_g6 + fixed_A_G6*cvar_g6
                 ax_g6.axvline(utility_g6/1e5, linestyle="-", color=current_color, 
                               label=f"A_L={a_l2} - Utility: {utility_g6/1e5:.2f}")
@@ -268,7 +269,7 @@ class Plotting_Class:
             l2_values = filtered_results[filtered_results['A_L2'] == a_l2]['Revenue_L2'].values
             if len(l2_values) > 0:
                 expected_l2 = l2_values.mean()
-                cvar_l2 = calculate_cvar(l2_values, self.cm_data.alpha)
+                cvar_l2 = calculate_cvar_left(l2_values, self.cm_data.alpha)
                 utility_l2 = (1-a_l2)*expected_l2 + a_l2*cvar_l2
                 ax_l2.axvline(utility_l2/1e5, linestyle="-", color=current_color, 
                               label=f"A_L={a_l2} - Utility: {utility_l2/1e5:.2f}")
@@ -377,7 +378,7 @@ class Plotting_Class:
 
         # Scale values to 10^5 for better readability
         g6_values = self.cm_data.net_earnings_no_contract_G6_df.sum().values / 1e5
-        l2_values = self.cm_data.net_earnings_no_contract_L2_df.sum().values / 1e5
+        l2_values = self.cm_data.net_earnings_no_contract_L2.values / 1e5
 
         # Create histogram bins
         bins_g6 = np.linspace(min(g6_values), max(g6_values), 19)
@@ -395,8 +396,8 @@ class Plotting_Class:
         zeta_l2_values = []
         
         # Calculate CVaR values (constant for all risk aversion values)
-        cvar_g6 = calculate_cvar(self.cm_data.net_earnings_no_contract_G6, self.cm_data.alpha)
-        cvar_l2 = calculate_cvar(self.cm_data.net_earnings_no_contract_L2, self.cm_data.alpha)
+        cvar_g6 = calculate_cvar_left(self.cm_data.net_earnings_no_contract_G6, self.cm_data.alpha)
+        cvar_l2 = calculate_cvar_left(self.cm_data.net_earnings_no_contract_L2, self.cm_data.alpha)
         mean_g6 = self.cm_data.net_earnings_no_contract_G6.mean()
         mean_l2 = self.cm_data.net_earnings_no_contract_L2.mean()
 
@@ -429,10 +430,6 @@ class Plotting_Class:
         ax_l2.set_ylabel('Frequency')
         ax_l2.grid(True, axis='y', linestyle='--', alpha=0.7)
         ax_l2.legend()
-
-
-   
-
 
         if filename:
             filepath = os.path.join(self.plots_dir, filename)

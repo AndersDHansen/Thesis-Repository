@@ -1,0 +1,2 @@
+from contract_negotiation import Contract_Negotiation as Contract_Negotiation
+

@@ -5,7 +5,7 @@ Handles data loading, scenario generation, and input data structures.
 import numpy as np
 import pandas as pd
 from scipy.stats import qmc
-from utils import Expando
+
 
 def generate_scenarios(num_L_scen, num_days, num_hours, L, daily_load_mean, load_std, all_nodes=False):
     """
@@ -168,7 +168,7 @@ class InputData:
         self.K_G6 = K_G6
         self.alpha = alpha
 
-def load_data(hours: int, days: int, scen: int, beta_G: float, beta_L: float):
+def load_data(hours: int, days: int, scen: int, A_G6: float, A_L2: float):
     """
     Load system data and create initial parameters.
     
@@ -281,8 +281,8 @@ def load_data(hours: int, days: int, scen: int, beta_G: float, beta_L: float):
     contract_amount_max = 600
     
     # Risk parameters
-    A_L2 = beta_L
-    A_G6 = beta_G
+    A_L2 = A_L2
+    A_G6 = A_G6
     K_L2 = 0
     K_G6 = 0
     alpha = 0.95

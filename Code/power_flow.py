@@ -164,7 +164,7 @@ class OptimalPowerFlow:
                 (t, s): sum(
                     (self.results.price[n][t, s] - self.data.generator_cost_a[g]) * 
                     self.results.generator_production[g][t, s] - 
-                    self.data.generator_cost_b[g] * self.results.generator_production[g][t, s] ** 2
+                    self.data.generator_cost_b[g] * self.results.generator_production[g][t, s] *self.results.generator_production[g][t, s]
                     for n in self.data.NODES
                     if self.data.mapping_generators.loc[g, n] == 1
                 )
