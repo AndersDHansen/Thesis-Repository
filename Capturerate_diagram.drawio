@@ -4,7 +4,7 @@
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        <mxCell id="16FuGiX_0qU9tq5BaQ8X-1" value="Historical Data Prices (Monthly)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#0050ef;fontColor=#ffffff;strokeColor=#001DBC;" vertex="1" parent="1">
+        <mxCell id="16FuGiX_0qU9tq5BaQ8X-1" value="Historical Data Prices (Monthly)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#0050ef;fontColor=#ffffff;strokeColor=#001DBC;fontSize=18;" vertex="1" parent="1">
           <mxGeometry x="-496" y="-161" width="252" height="100" as="geometry" />
         </mxCell>
         <mxCell id="16FuGiX_0qU9tq5BaQ8X-2" value="" style="shape=image;verticalLabelPosition=bottom;labelBackgroundColor=default;verticalAlign=top;aspect=fixed;imageAspect=0;image=https://static.thenounproject.com/png/991167-200.png;" vertex="1" parent="1">
@@ -16,7 +16,7 @@
         <mxCell id="16FuGiX_0qU9tq5BaQ8X-9" value="" style="edgeStyle=none;curved=1;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=12;startSize=8;endSize=8;strokeColor=light-dark(#000000,#000000);" edge="1" parent="1" source="16FuGiX_0qU9tq5BaQ8X-4" target="16FuGiX_0qU9tq5BaQ8X-3">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="16FuGiX_0qU9tq5BaQ8X-4" value="Historical Data Production (Monthly)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#0050ef;fontColor=#ffffff;strokeColor=#001DBC;" vertex="1" parent="1">
+        <mxCell id="16FuGiX_0qU9tq5BaQ8X-4" value="Historical Data Production (Monthly)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#0050ef;fontColor=#ffffff;strokeColor=#001DBC;fontSize=18;" vertex="1" parent="1">
           <mxGeometry x="-496" y="56" width="252" height="100" as="geometry" />
         </mxCell>
         <mxCell id="16FuGiX_0qU9tq5BaQ8X-7" style="edgeStyle=none;curved=1;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;fontSize=12;startSize=8;endSize=8;" edge="1" parent="1">
@@ -25,10 +25,10 @@
             <mxPoint x="-731" y="302" as="sourcePoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="16FuGiX_0qU9tq5BaQ8X-10" value="$$\mu^V,\sigma^V$$" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontColor=light-dark(#000000,#000000);" vertex="1" parent="1">
+        <mxCell id="16FuGiX_0qU9tq5BaQ8X-10" value="$$\mu^V,\sigma^V$$" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontColor=light-dark(#000000,#000000);fontSize=18;" vertex="1" parent="1">
           <mxGeometry x="-198" y="67" width="60" height="30" as="geometry" />
         </mxCell>
-        <mxCell id="16FuGiX_0qU9tq5BaQ8X-11" value="$$\mu^P,\sigma^P$$" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontColor=light-dark(#000000,#000000);" vertex="1" parent="1">
+        <mxCell id="16FuGiX_0qU9tq5BaQ8X-11" value="$$\mu^P,\sigma^P$$" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontColor=light-dark(#000000,#000000);fontSize=18;" vertex="1" parent="1">
           <mxGeometry x="-198" y="-154" width="60" height="30" as="geometry" />
         </mxCell>
         <mxCell id="16FuGiX_0qU9tq5BaQ8X-12" value="&lt;font style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;Distribution for Monte carlo simulation&amp;nbsp; (Independent)&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
@@ -37,13 +37,13 @@
         <mxCell id="16FuGiX_0qU9tq5BaQ8X-23" value="" style="edgeStyle=none;curved=1;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=12;startSize=8;endSize=8;strokeColor=light-dark(#000000,#000000);" edge="1" parent="1" source="16FuGiX_0qU9tq5BaQ8X-13" target="16FuGiX_0qU9tq5BaQ8X-20">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="16FuGiX_0qU9tq5BaQ8X-13" value="Monte Carlo Simulate&lt;br&gt;Time X Scenarios" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#0050ef;fontColor=#ffffff;strokeColor=#001DBC;" vertex="1" parent="1">
+        <mxCell id="16FuGiX_0qU9tq5BaQ8X-13" value="Monte Carlo Simulate&lt;br&gt;Time X Scenarios" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#0050ef;fontColor=#ffffff;strokeColor=#001DBC;fontSize=18;" vertex="1" parent="1">
           <mxGeometry x="187" y="-49" width="164" height="78.5" as="geometry" />
         </mxCell>
-        <mxCell id="16FuGiX_0qU9tq5BaQ8X-14" value="$$\mathcal{N}^P(\mu^P,\sigma^P)$$" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontColor=light-dark(#000000,#000000);" vertex="1" parent="1">
+        <mxCell id="16FuGiX_0qU9tq5BaQ8X-14" value="$$\mathcal{N}^P(\mu^P,\sigma^P)$$" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontColor=light-dark(#000000,#000000);fontSize=18;" vertex="1" parent="1">
           <mxGeometry x="22" y="-154" width="60" height="30" as="geometry" />
         </mxCell>
-        <mxCell id="16FuGiX_0qU9tq5BaQ8X-15" value="$$\mathcal{N^V}(\mu^V,\sigma^V)$$" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontColor=light-dark(#000000,#000000);" vertex="1" parent="1">
+        <mxCell id="16FuGiX_0qU9tq5BaQ8X-15" value="$$\mathcal{N^V}(\mu^V,\sigma^V)$$" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontColor=light-dark(#000000,#000000);fontSize=18;" vertex="1" parent="1">
           <mxGeometry x="22" y="56" width="60" height="30" as="geometry" />
         </mxCell>
         <mxCell id="16FuGiX_0qU9tq5BaQ8X-16" value="" style="endArrow=classic;html=1;rounded=0;fontSize=12;startSize=8;endSize=8;curved=1;fontColor=light-dark(#000000,#000000);exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=light-dark(#000000,#000000);" edge="1" parent="1" source="16FuGiX_0qU9tq5BaQ8X-3" target="16FuGiX_0qU9tq5BaQ8X-13">
@@ -61,14 +61,14 @@
         <mxCell id="16FuGiX_0qU9tq5BaQ8X-45" value="" style="edgeStyle=none;curved=1;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=12;startSize=8;endSize=8;strokeColor=light-dark(#000000,#000000);" edge="1" parent="1" source="16FuGiX_0qU9tq5BaQ8X-20" target="16FuGiX_0qU9tq5BaQ8X-44">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="16FuGiX_0qU9tq5BaQ8X-20" value="$$\tilde{P}_{t,s},\tilde{V}_{t,s}$$" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#0050ef;fontColor=#ffffff;strokeColor=#001DBC;" vertex="1" parent="1">
+        <mxCell id="16FuGiX_0qU9tq5BaQ8X-20" value="$$\tilde{P}_{t,s},\tilde{V}_{t,s}$$" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#0050ef;fontColor=#ffffff;strokeColor=#001DBC;fontSize=18;" vertex="1" parent="1">
           <mxGeometry x="400" y="-37.25" width="123" height="55" as="geometry" />
         </mxCell>
         <mxCell id="16FuGiX_0qU9tq5BaQ8X-22" value="&lt;font style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;Distribution for Monte carlo simulation&amp;nbsp; (Independent)&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
           <mxGeometry x="-92" y="-13" width="135.75" height="45" as="geometry" />
         </mxCell>
-        <mxCell id="16FuGiX_0qU9tq5BaQ8X-24" value="Datapoints of monthly Producion(V) and price(P)" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontColor=light-dark(#000000,#000000);" vertex="1" parent="1">
-          <mxGeometry x="386.5" y="-97" width="150" height="48" as="geometry" />
+        <mxCell id="16FuGiX_0qU9tq5BaQ8X-24" value="Datapoints of monthly Producion(V) and price(P)" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontColor=light-dark(#000000,#000000);fontSize=18;" vertex="1" parent="1">
+          <mxGeometry x="395" y="-119" width="150" height="48" as="geometry" />
         </mxCell>
         <mxCell id="16FuGiX_0qU9tq5BaQ8X-27" value="" style="endArrow=classic;html=1;rounded=0;fontSize=12;startSize=8;endSize=8;curved=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=light-dark(#000000,#000000);" edge="1" parent="1" source="16FuGiX_0qU9tq5BaQ8X-1" target="16FuGiX_0qU9tq5BaQ8X-2">
           <mxGeometry width="50" height="50" relative="1" as="geometry">
@@ -82,17 +82,17 @@
         <mxCell id="16FuGiX_0qU9tq5BaQ8X-55" value="" style="edgeStyle=none;curved=1;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=12;startSize=8;endSize=8;strokeColor=light-dark(#000000,#000000);" edge="1" parent="1" source="16FuGiX_0qU9tq5BaQ8X-44" target="16FuGiX_0qU9tq5BaQ8X-53">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="16FuGiX_0qU9tq5BaQ8X-44" value="&lt;font color=&quot;rgba(0, 0, 0, 0)&quot;&gt;Calculate \(\rho\) for each timestep ( or scenario?)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fa6800;fontColor=#000000;strokeColor=#C73500;" vertex="1" parent="1">
-          <mxGeometry x="628" y="-39.75" width="165" height="60" as="geometry" />
+        <mxCell id="16FuGiX_0qU9tq5BaQ8X-44" value="&lt;font color=&quot;rgba(0, 0, 0, 0)&quot;&gt;Calculate \(\rho\) for each timestep ( or scenario?)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fa6800;fontColor=#000000;strokeColor=#C73500;fontSize=18;" vertex="1" parent="1">
+          <mxGeometry x="628" y="-39.75" width="171" height="64.75" as="geometry" />
         </mxCell>
-        <mxCell id="16FuGiX_0qU9tq5BaQ8X-46" value="&lt;font style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;Aggregate Scenarios of&amp;nbsp;&lt;/font&gt;$$\tilde{P}_{t,s},\tilde{V}_{t,s},CR_{t,s}$$" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0050ef;fontColor=#ffffff;strokeColor=#001DBC;" vertex="1" parent="1">
-          <mxGeometry x="1024" y="-42.25" width="195" height="60" as="geometry" />
+        <mxCell id="16FuGiX_0qU9tq5BaQ8X-46" value="&lt;font style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;Aggregate Scenarios of&amp;nbsp;&lt;/font&gt;$$\tilde{P}_{t,s},\tilde{V}_{t,s},CR_{t,s}$$" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0050ef;fontColor=#ffffff;strokeColor=#001DBC;fontSize=18;" vertex="1" parent="1">
+          <mxGeometry x="1024" y="-42.25" width="203" height="80.25" as="geometry" />
         </mxCell>
         <mxCell id="16FuGiX_0qU9tq5BaQ8X-49" value="" style="edgeStyle=none;curved=1;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=12;startSize=8;endSize=8;strokeColor=light-dark(#000000,#000000);" edge="1" parent="1" source="16FuGiX_0qU9tq5BaQ8X-47" target="16FuGiX_0qU9tq5BaQ8X-46">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="16FuGiX_0qU9tq5BaQ8X-47" value="CR = \( 1 + \rho_{s}\frac{\sigma^V_t}{\mu^V_t}\frac{\sigma^P_t}{\sigma^P_t} \)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#008a00;fontColor=#ffffff;strokeColor=#005700;" vertex="1" parent="1">
-          <mxGeometry x="844" y="41" width="120" height="60" as="geometry" />
+        <mxCell id="16FuGiX_0qU9tq5BaQ8X-47" value="CR = \( 1 + \rho_{s}\frac{\sigma^V_t}{\mu^V_t}\frac{\sigma^P_t}{\sigma^P_t} \)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#008a00;fontColor=#ffffff;strokeColor=#005700;fontSize=21;" vertex="1" parent="1">
+          <mxGeometry x="844" y="41" width="151" height="72" as="geometry" />
         </mxCell>
         <mxCell id="16FuGiX_0qU9tq5BaQ8X-51" value="" style="edgeStyle=none;curved=1;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=12;startSize=8;endSize=8;strokeColor=light-dark(#000000,#000000);exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="16FuGiX_0qU9tq5BaQ8X-13" target="16FuGiX_0qU9tq5BaQ8X-61">
           <mxGeometry relative="1" as="geometry">
@@ -103,10 +103,10 @@
         <mxCell id="16FuGiX_0qU9tq5BaQ8X-56" value="" style="edgeStyle=none;curved=1;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=12;startSize=8;endSize=8;strokeColor=light-dark(#000000,#000000);" edge="1" parent="1" source="16FuGiX_0qU9tq5BaQ8X-53" target="16FuGiX_0qU9tq5BaQ8X-46">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="16FuGiX_0qU9tq5BaQ8X-53" value="CR = \( 1 + \rho_s\frac{\sigma^V_t}{\mu^V_t}\frac{\sigma^P_t}{\sigma^P_t} \)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fa6800;fontColor=#000000;strokeColor=#C73500;" vertex="1" parent="1">
-          <mxGeometry x="844" y="-39.75" width="120" height="60" as="geometry" />
+        <mxCell id="16FuGiX_0qU9tq5BaQ8X-53" value="CR = \( 1 + \rho_s\frac{\sigma^V_t}{\mu^V_t}\frac{\sigma^P_t}{\sigma^P_t} \)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fa6800;fontColor=#000000;strokeColor=#C73500;fontSize=21;" vertex="1" parent="1">
+          <mxGeometry x="844" y="-39.75" width="152" height="70.75" as="geometry" />
         </mxCell>
-        <mxCell id="16FuGiX_0qU9tq5BaQ8X-58" value="&lt;font style=&quot;font-size: 21px;&quot;&gt;1&lt;/font&gt;" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#008a00;fontColor=#ffffff;strokeColor=#005700;" vertex="1" parent="1">
+        <mxCell id="16FuGiX_0qU9tq5BaQ8X-58" value="&lt;font&gt;1&lt;/font&gt;" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#008a00;fontColor=#ffffff;strokeColor=#005700;fontSize=18;" vertex="1" parent="1">
           <mxGeometry x="191" y="215.25" width="80" height="80" as="geometry" />
         </mxCell>
         <mxCell id="16FuGiX_0qU9tq5BaQ8X-59" value="" style="edgeStyle=none;curved=1;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=12;startSize=8;endSize=8;" edge="1" parent="1" source="16FuGiX_0qU9tq5BaQ8X-61">
@@ -117,13 +117,13 @@
         <mxCell id="16FuGiX_0qU9tq5BaQ8X-60" value="" style="edgeStyle=none;curved=1;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=12;startSize=8;endSize=8;strokeColor=light-dark(#000000,#000000);" edge="1" parent="1" source="16FuGiX_0qU9tq5BaQ8X-61" target="16FuGiX_0qU9tq5BaQ8X-64">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="16FuGiX_0qU9tq5BaQ8X-61" value="Calculating the average correlation and standard deviation of correlation" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#008a00;fontColor=#ffffff;strokeColor=#005700;" vertex="1" parent="1">
+        <mxCell id="16FuGiX_0qU9tq5BaQ8X-61" value="Calculating the average correlation and standard deviation of correlation" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#008a00;fontColor=#ffffff;strokeColor=#005700;fontSize=18;" vertex="1" parent="1">
           <mxGeometry x="287" y="205.25" width="252" height="100" as="geometry" />
         </mxCell>
         <mxCell id="16FuGiX_0qU9tq5BaQ8X-64" value="" style="shape=image;verticalLabelPosition=bottom;labelBackgroundColor=default;verticalAlign=top;aspect=fixed;imageAspect=0;image=https://static.thenounproject.com/png/991167-200.png;imageBackground=none;" vertex="1" parent="1">
           <mxGeometry x="638" y="171.75" width="167" height="167" as="geometry" />
         </mxCell>
-        <mxCell id="16FuGiX_0qU9tq5BaQ8X-65" value="$$\mathcal{N^\rho}(\mu^\rho,\sigma^\rho)$$" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontColor=light-dark(#000000,#000000);" vertex="1" parent="1">
+        <mxCell id="16FuGiX_0qU9tq5BaQ8X-65" value="$$\mathcal{N^\rho}(\mu^\rho,\sigma^\rho)$$" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontColor=light-dark(#000000,#000000);fontSize=18;" vertex="1" parent="1">
           <mxGeometry x="758" y="205.25" width="60" height="30" as="geometry" />
         </mxCell>
         <mxCell id="16FuGiX_0qU9tq5BaQ8X-66" value="" style="edgeStyle=none;curved=1;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontSize=12;startSize=8;endSize=8;" edge="1" parent="1" source="16FuGiX_0qU9tq5BaQ8X-67">
@@ -131,7 +131,7 @@
             <mxPoint x="555" y="126.25" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="16FuGiX_0qU9tq5BaQ8X-67" value="&lt;span&gt;&lt;font style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;$$\mu^\rho,\sigma^\rho$$&lt;/font&gt;&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+        <mxCell id="16FuGiX_0qU9tq5BaQ8X-67" value="&lt;span&gt;&lt;font style=&quot;color: light-dark(rgb(0, 0, 0), rgb(0, 0, 0));&quot;&gt;$$\mu^\rho,\sigma^\rho$$&lt;/font&gt;&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=20;" vertex="1" parent="1">
           <mxGeometry x="562" y="210.25" width="60" height="30" as="geometry" />
         </mxCell>
         <mxCell id="16FuGiX_0qU9tq5BaQ8X-68" value="" style="endArrow=classic;html=1;rounded=0;fontSize=12;startSize=8;endSize=8;curved=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=light-dark(#000000,#000000);" edge="1" parent="1" source="16FuGiX_0qU9tq5BaQ8X-64" target="16FuGiX_0qU9tq5BaQ8X-47">
