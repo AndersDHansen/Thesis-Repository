@@ -36,7 +36,7 @@ class Plotting_Class:
             risk_sensitivity_df = self.risk_sensitivity_df
             
         # Metrics to plot
-        #metrics = ['StrikePrice', 'Utility_G6', 'Utility_L2', 'NashProduct']
+        #metrics = ['StrikePrice', 'Utility_G', 'Utility_L', 'NashProduct']
         metrics = ['StrikePrice', 'ContractAmount']
 
         fig, axes = plt.subplots(1, 2, figsize=(12, 5))
@@ -49,8 +49,8 @@ class Plotting_Class:
             ax = axes[i]
             try:
                 pivot_table = risk_sensitivity_df.pivot(
-                    index='A_L2',
-                    columns='A_G6',
+                    index='A_L',
+                    columns='A_G',
                     values=metric
                 )
                 fmt = ".2f" if metric == "StrikePrice" else ".1f"
@@ -63,8 +63,8 @@ class Plotting_Class:
                     cbar=True
                 )
                 ax.set_title(titles[i])
-                ax.set_xlabel('Risk Aversion Generator (A_G6)')
-                ax.set_ylabel('Risk Aversion Load (A_L2)')
+                ax.set_xlabel('Risk Aversion Generator (A_G)')
+                ax.set_ylabel('Risk Aversion Load (A_L)')
                 ax.invert_yaxis()
             except Exception as e:
                 print(f"Could not plot heatmap for {metric}: {e}")
@@ -79,17 +79,17 @@ class Plotting_Class:
         else:
             plt.show()
 
-    def _plot_earnings_histograms(self, fixed_A_G6, A_L2_to_plot, filename=None,new_data = None):
+    def _plot_earnings_histograms(self, fixed_A_G, A_L_to_plot, filename=None,new_data = None):
         """
-        Plots histograms of G6 and L2 net earnings for different risk aversion levels.
+        Plots histograms of G and L net earnings for different risk aversion levels.
         """
         if new_data is not None:
             earnings_risk_sensitivity_df = new_data
         else:
             earnings_risk_sensitivity_df = self.earnings_risk_sensitivity_df
         filtered_results = pd.concat([
-            df[(df['A_G6'] == fixed_A_G6) & (df['A_L2'].isin(A_L2_to_plot)) & 
-               (~df['Revenue_G6'].isna()) & (~df['Revenue_L2'].isna())]
+            df[(df['A_G'] == fixed_A_G) & (df['A_L'].isin(A_L_to_plot)) & 
+               (~df['Revenue_G'].isna()) & (~df['Revenue_L'].isna())]
             for df in earnings_risk_sensitivity_df
             if isinstance(df, pd.DataFrame) and not df.empty
         ], ignore_index=True)
@@ -98,111 +98,111 @@ class Plotting_Class:
             print("No valid results to plot.")
             return
         
-        all_g6_values = np.concatenate([filtered_results['Revenue_G6'].values,self.cm_data.net_earnings_no_contract_G6_df.sum().values])
-        all_l2_values = np.concatenate([filtered_results['Revenue_L2'].values,self.cm_data.net_earnings_no_contract_L2])
+        all_G_values = np.concatenate([filtered_results['Revenue_G'].values,self.cm_data.net_earnings_no_contract_true_G.values])
+        all_L_values = np.concatenate([filtered_results['Revenue_L'].values,self.cm_data.net_earnings_no_contract_true_L.values])
         
 
         # Create uniform bins based on global min and max
         bins = 19
-        min_val_g6 = min(all_g6_values) / 1e5
-        max_val_g6 = max(all_g6_values) / 1e5
-        bin_edges_g6 = np.linspace(min_val_g6, max_val_g6, bins + 1)
+        min_val_G = min(all_G_values) / 1e5
+        max_val_G = max(all_G_values) / 1e5
+        bin_edges_G = np.linspace(min_val_G, max_val_G, bins + 1)
 
-        min_val_l2 = min(all_l2_values) / 1e5
-        max_val_l2 = max(all_l2_values) / 1e5
-        bin_edges_l2 = np.linspace(min_val_l2, max_val_l2, bins + 1)
+        min_val_L = min(all_L_values) / 1e5
+        max_val_L = max(all_L_values) / 1e5
+        bin_edges_L = np.linspace(min_val_L, max_val_L, bins + 1)
 
 
         fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-        # Plot G6 Revenue Histogram
-        ax_g6 = axes[0]
-        ax_l2 = axes[1]
+        # Plot G Revenue Histogram
+        ax_G = axes[0]
+        ax_L = axes[1]
 
         # Get color cycle before the loops
         prop_cycle = plt.rcParams['axes.prop_cycle']
         colors = prop_cycle.by_key()['color']
 
-        # Plot G6 Revenue Histogram
-        for idx, a_l2 in enumerate(A_L2_to_plot):
-            g6_values = filtered_results[filtered_results['A_L2'] == a_l2]['Revenue_G6'].values
+        # Plot G Revenue Histogram
+        for idx, a_L in enumerate(A_L_to_plot):
+            G_values = filtered_results[filtered_results['A_L'] == a_L]['Revenue_G'].values
 
-            # Expected G6 Revenue
-            G_6_expected = g6_values.mean()
+            # Expected G Revenue
+            G_6_expected = G_values.mean()
             # Calculate CVaR values 
-            cvar_g6 = calculate_cvar_left(g6_values, self.cm_data.alpha)
-            utility_g6 = (1-a_l2)*G_6_expected + a_l2*cvar_g6
+            cvar_G = calculate_cvar_left(G_values, self.cm_data.alpha)
+            utility_G = (1-a_L)*G_6_expected + a_L*cvar_G
 
-            if len(g6_values) > 0:
+            if len(G_values) > 0:
                 current_color = colors[idx % len(colors)]  # Cycle through colors
-                print(f"\nPlotting histogram for A_L2={a_l2}")
-                print(f"Values range: {g6_values.min() / 1e5} to {g6_values.max() / 1e5}")
-                ax_g6.hist(
-                    g6_values / 1e5,
-                    bins=bin_edges_g6,
+                print(f"\nPlotting histogram for A_L={a_L}")
+                print(f"Values range: {G_values.min() / 1e5} to {G_values.max() / 1e5}")
+                ax_G.hist(
+                    G_values / 1e5,
+                    bins=bin_edges_G,
                     alpha=0.6,
-                    label=f'A_L={a_l2}',
+                    label=f'A_L={a_L}',
                     color=current_color,
                     density=False
                 )
-                ax_g6.axvline(utility_g6/1e5, linestyle="--", color=current_color, 
-                              label=f"A_L={a_l2} - Utility: {utility_g6/1e5:.2f}")
+                ax_G.axvline(utility_G/1e5, linestyle="--", color=current_color, 
+                              label=f"A_L={a_L} - Utility: {utility_G/1e5:.2f}")
 
-            # Plot L2 Revenue Histogram with same color
-            l2_values = filtered_results[filtered_results['A_L2'] == a_l2]['Revenue_L2'].values
+            # Plot L Revenue Histogram with same color
+            L_values = filtered_results[filtered_results['A_L'] == a_L]['Revenue_L'].values
 
-            # Expected L2 Revenue
-            l2_expected = g6_values.mean()
+            # Expected L Revenue
+            L_expected = L_values.mean()
             # Calculate CVaR values 
             
-            cvar_l2 = calculate_cvar_left(l2_values, self.cm_data.alpha)
-            utility_l2 = (1-a_l2)*l2_expected + a_l2*cvar_l2
-            if len(l2_values) > 0:
-                ax_l2.hist(
-                    l2_values / 1e5,
-                    bins=bin_edges_l2,
+            cvar_L = calculate_cvar_left(L_values, self.cm_data.alpha)
+            utility_L = (1-a_L)*L_expected + a_L*cvar_L
+            if len(L_values) > 0:
+                ax_L.hist(
+                    L_values / 1e5,
+                    bins=bin_edges_L,
                     alpha=0.6,
-                    label=f'A_L={a_l2}',
+                    label=f'A_L={a_L}',
                     color=current_color,
                     density=False
                 )
-                ax_l2.axvline(utility_l2/1e5, linestyle="--", color=current_color, 
-                              label=f"A_L={a_l2} - Utility : {utility_l2/1e5:.2f}")
+                ax_L.axvline(utility_L/1e5, linestyle="--", color=current_color, 
+                              label=f"A_L={a_L} - Utility : {utility_L/1e5:.2f}")
         
-        ax_g6.hist(self.cm_data.net_earnings_no_contract_G6_df.sum() / 1e5,bins=bin_edges_g6,alpha=0.4,label=f'No Contract',density=False,color ='black')    
-        #ax_g6.axvline(self.cm_data.net_earnings_no_contract_G6_df.sum().mean() / 1e5, linestyle="--",color ='black', label=f"No Contract - Average Earnings: {self.cm_data.net_earnings_no_contract_G6_df.sum().mean() / 1e5:.2f}")
-        ax_g6.set_title(f'Generator (G6) Revenue Distribution\n(A_G6 = {fixed_A_G6})')
-        ax_g6.set_xlabel('Generator Revenue ($ x 10^5)')
-        ax_g6.set_ylabel('Frequency')
+        ax_G.hist(self.cm_data.net_earnings_no_contract_G_df.sum() / 1e5,bins=bin_edges_G,alpha=0.4,label=f'No Contract',density=False,color ='black')    
+        #ax_G.axvline(self.cm_data.net_earnings_no_contract_G_df.sum().mean() / 1e5, linestyle="--",color ='black', label=f"No Contract - Average Earnings: {self.cm_data.net_earnings_no_contract_G_df.sum().mean() / 1e5:.2f}")
+        ax_G.set_title(f'Generator (G) Revenue Distribution\n(A_G = {fixed_A_G})')
+        ax_G.set_xlabel('Generator Revenue ($ x 10^5)')
+        ax_G.set_ylabel('Frequency')
         # Modify legend to have two columns with specific ordering
-        handles, labels = ax_g6.get_legend_handles_labels()
+        handles, labels = ax_G.get_legend_handles_labels()
         hist_handles = handles[::2]  # Get histogram handles
         line_handles = handles[1::2]  # Get vertical line handles
         hist_labels = labels[::2]    # Get histogram labels
         line_labels = labels[1::2]   # Get vertical line labels
-        ax_g6.legend(hist_handles + line_handles, hist_labels + line_labels, 
+        ax_G.legend(hist_handles + line_handles, hist_labels + line_labels, 
                     ncol=2, loc='upper right', 
                     fontsize=10, bbox_to_anchor=(0.98, 0.98),
-                    bbox_transform=ax_g6.transAxes,
+                    bbox_transform=ax_G.transAxes,
                     framealpha=0.8)
-        ax_g6.grid(True, axis='y', linestyle='--', alpha=0.7)
+        ax_G.grid(True, axis='y', linestyle='--', alpha=0.7)
 
-        ax_l2.hist(self.cm_data.net_earnings_no_contract_L2/ 1e5,bins=bin_edges_l2,alpha=0.4,label=f'No Contract',density=False, color ='black')
-        #ax_l2.axvline(self.cm_data.net_earnings_no_contract_L2_df.sum().mean() / 1e5, linestyle="--",color ='black', label=f"No Contract - Average Earnings: {self.cm_data.net_earnings_no_contract_L2_df.sum().mean() / 1e5:.2f}")    
-        ax_l2.set_title(f'Load (L2) Revenue Distribution\n(A_G6 = {fixed_A_G6})')
-        ax_l2.set_xlabel('Load Revenue ($ x 10^5)')
-        ax_l2.set_ylabel('Frequency')
-        # Apply same legend formatting to L2 plot
-        handles, labels = ax_l2.get_legend_handles_labels()
+        ax_L.hist(self.cm_data.net_earnings_no_contract_true_L/ 1e5,bins=bin_edges_L,alpha=0.4,label=f'No Contract',density=False, color ='black')
+        #ax_L.axvline(self.cm_data.net_earnings_no_contract_L_df.sum().mean() / 1e5, linestyle="--",color ='black', label=f"No Contract - Average Earnings: {self.cm_data.net_earnings_no_contract_L_df.sum().mean() / 1e5:.2f}")    
+        ax_L.set_title(f'Load (L) Revenue Distribution\n(A_G = {fixed_A_G})')
+        ax_L.set_xlabel('Load Revenue ($ x 10^5)')
+        ax_L.set_ylabel('Frequency')
+        # Apply same legend formatting to L plot
+        handles, labels = ax_L.get_legend_handles_labels()
         hist_handles = handles[::2]
         line_handles = handles[1::2]
         hist_labels = labels[::2]
         line_labels = labels[1::2]
-        ax_l2.legend(hist_handles + line_handles, hist_labels + line_labels, 
+        ax_L.legend(hist_handles + line_handles, hist_labels + line_labels, 
                     ncol=2, loc='upper right',
                     fontsize=10, bbox_to_anchor=(0.98, 0.98),
-                    bbox_transform=ax_l2.transAxes,
+                    bbox_transform=ax_L.transAxes,
                     framealpha=0.8)
-        ax_l2.grid(True, axis='y', linestyle='--', alpha=0.7)
+        ax_L.grid(True, axis='y', linestyle='--', alpha=0.7)
 
         plt.tight_layout()
         if filename:
@@ -213,16 +213,16 @@ class Plotting_Class:
         else:
             plt.show()
 
-    def _plot_expected_versus_threatpoint(self,fixed_A_G6, A_L2_to_plot, filename=None):
+    def _plot_expected_versus_threatpoint(self,fixed_A_G, A_L_to_plot, filename=None):
 
         """
-        Plots histograms of G6 and L2 net earnings for different risk aversion levels.
+        Plots histograms of G and L net earnings for different risk aversion levels.
         """
         earnings_risk_sensitivity_df = self.earnings_risk_sensitivity_df
         
         filtered_results = pd.concat([
-            df[(df['A_G6'] == fixed_A_G6) & (df['A_L2'].isin(A_L2_to_plot)) & 
-               (~df['Revenue_G6'].isna()) & (~df['Revenue_L2'].isna())]
+            df[(df['A_G'] == fixed_A_G) & (df['A_L'].isin(A_L_to_plot)) & 
+               (~df['Revenue_G'].isna()) & (~df['Revenue_L'].isna())]
             for df in earnings_risk_sensitivity_df
             if isinstance(df, pd.DataFrame) and not df.empty
         ], ignore_index=True)
@@ -232,83 +232,83 @@ class Plotting_Class:
             return
         
         fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-        # Plot G6 Revenue Histogram
-        ax_g6 = axes[0]
-        ax_l2 = axes[1]
+        # Plot G Revenue Histogram
+        ax_G = axes[0]
+        ax_L = axes[1]
 
         # Get color cycle before the loops
         prop_cycle = plt.rcParams['axes.prop_cycle']
         colors = prop_cycle.by_key()['color']
 
-        zeta_l2_values = []
+        zeta_L_values = []
 
 
         # Calculate CVaR values (constant for all risk aversion values)
-        cvar_g6_no_contract = calculate_cvar_left(self.cm_data.net_earnings_no_contract_G6, self.cm_data.alpha)
-        cvar_l2_no_contract = calculate_cvar_left(self.cm_data.net_earnings_no_contract_L2, self.cm_data.alpha)
-        mean_g6_contract = self.cm_data.net_earnings_no_contract_G6.mean()
-        mean_l2_no_contract = self.cm_data.net_earnings_no_contract_L2.mean()
+        cvar_G_no_contract = calculate_cvar_left(self.cm_data.net_earnings_no_contract_G, self.cm_data.alpha)
+        cvar_L_no_contract = calculate_cvar_left(self.cm_data.net_earnings_no_contract_L, self.cm_data.alpha)
+        mean_G_contract = self.cm_data.net_earnings_no_contract_G.mean()
+        mean_L_no_contract = self.cm_data.net_earnings_no_contract_L.mean()
 
         # Calculate threat points for different risk aversion values
-        for A in A_L2_to_plot:
-            zeta_l2 = (1-A)*mean_l2_no_contract + A*cvar_l2_no_contract
-            zeta_l2_values.append(zeta_l2)
-        zeta_g6 = ((1-fixed_A_G6)*mean_g6_contract + fixed_A_G6*cvar_g6_no_contract)
-        # Plot G6 Revenue Histogram
-        for idx, a_l2 in enumerate(A_L2_to_plot):
-            g6_values = filtered_results[filtered_results['A_L2'] == a_l2]['Revenue_G6'].values
+        for A in A_L_to_plot:
+            zeta_L = (1-A)*mean_L_no_contract + A*cvar_L_no_contract
+            zeta_L_values.append(zeta_L)
+        zeta_G = ((1-fixed_A_G)*mean_G_contract + fixed_A_G*cvar_G_no_contract)
+        # Plot G Revenue Histogram
+        for idx, a_L in enumerate(A_L_to_plot):
+            G_values = filtered_results[filtered_results['A_L'] == a_L]['Revenue_G'].values
             current_color = colors[idx % len(colors)]  # Cycle through colors
 
-            if len(g6_values) > 0:
-                expected_g6 = g6_values.mean()
-                cvar_g6 = calculate_cvar_left(g6_values, self.cm_data.alpha)
-                utility_g6 = (1-fixed_A_G6)*expected_g6 + fixed_A_G6*cvar_g6
-                ax_g6.axvline(utility_g6/1e5, linestyle="-", color=current_color, 
-                              label=f"A_L={a_l2} - Utility: {utility_g6/1e5:.2f}")
-            # Plot L2 Revenue Histogram with same color
-            l2_values = filtered_results[filtered_results['A_L2'] == a_l2]['Revenue_L2'].values
-            if len(l2_values) > 0:
-                expected_l2 = l2_values.mean()
-                cvar_l2 = calculate_cvar_left(l2_values, self.cm_data.alpha)
-                utility_l2 = (1-a_l2)*expected_l2 + a_l2*cvar_l2
-                ax_l2.axvline(utility_l2/1e5, linestyle="-", color=current_color, 
-                              label=f"A_L={a_l2} - Utility: {utility_l2/1e5:.2f}")
-                ax_l2.axvline(zeta_l2_values[idx]/1e5, linestyle="--", color=current_color, label=f"A_L={a_l2:.2f} - Threat= {zeta_l2_values[idx]/1e5:.2f} ")
+            if len(G_values) > 0:
+                expected_G = G_values.mean()
+                cvar_G = calculate_cvar_left(G_values, self.cm_data.alpha)
+                utility_G = (1-fixed_A_G)*expected_G + fixed_A_G*cvar_G
+                ax_G.axvline(utility_G/1e5, linestyle="-", color=current_color, 
+                              label=f"A_L={a_L} - Utility: {utility_G/1e5:.2f}")
+            # Plot L Revenue Histogram with same color
+            L_values = filtered_results[filtered_results['A_L'] == a_L]['Revenue_L'].values
+            if len(L_values) > 0:
+                expected_L = L_values.mean()
+                cvar_L = calculate_cvar_left(L_values, self.cm_data.alpha)
+                utility_L = (1-a_L)*expected_L + a_L*cvar_L
+                ax_L.axvline(utility_L/1e5, linestyle="-", color=current_color, 
+                              label=f"A_L={a_L} - Utility: {utility_L/1e5:.2f}")
+                ax_L.axvline(zeta_L_values[idx]/1e5, linestyle="--", color=current_color, label=f"A_L={a_L:.2f} - Threat= {zeta_L_values[idx]/1e5:.2f} ")
 
         
-        #G6 Subplot configuration
-        ax_g6.axvline(zeta_g6/1e5, linestyle="--", color='black', label=f"Threat Point: {zeta_g6/1e5:.2f}")
-        ax_g6.set_title(f'Generator (G6) Threatpoint\n(A_G6 = {fixed_A_G6}) vs. L2 Risk Aversion')
-        ax_g6.set_xlabel('Generator Revenue ($ x 10^5)')
+        #G Subplot configuration
+        ax_G.axvline(zeta_G/1e5, linestyle="--", color='black', label=f"Threat Point: {zeta_G/1e5:.2f}")
+        ax_G.set_title(f'Generator (G) Threatpoint\n(A_G = {fixed_A_G}) vs. L Risk Aversion')
+        ax_G.set_xlabel('Generator Revenue ($ x 10^5)')
         # Modify legend to have two columns with specific ordering
-        handles, labels = ax_g6.get_legend_handles_labels()
+        handles, labels = ax_G.get_legend_handles_labels()
         hist_handles = handles[::2]  # Get histogram handles
         line_handles = handles[1::2]  # Get vertical line handles
         hist_labels = labels[::2]    # Get histogram labels
         line_labels = labels[1::2]   # Get vertical line labels
-        ax_g6.legend(hist_handles + line_handles, hist_labels + line_labels, 
+        ax_G.legend(hist_handles + line_handles, hist_labels + line_labels, 
                     ncol=2, loc='upper right', 
                     fontsize=10, bbox_to_anchor=(0.98, 0.98),
-                    bbox_transform=ax_g6.transAxes,
+                    bbox_transform=ax_G.transAxes,
                     framealpha=0.8)
-        ax_g6.grid(True, axis='y', linestyle='--', alpha=0.7)
+        ax_G.grid(True, axis='y', linestyle='--', alpha=0.7)
 
-        #ax_l2.axvline(self.cm_data.net_earnings_no_contract_L2_df.sum().mean() / 1e5, linestyle="--",color ='black', label=f"No Contract - Average Earnings: {self.cm_data.net_earnings_no_contract_L2_df.sum().mean() / 1e5:.2f}")   
-        #L2 Subplot configuration
-        ax_l2.set_title(f'Load (L2) Threatpoints vs \n(A_G6 = {fixed_A_G6})')
-        ax_l2.set_xlabel('Load Revenue ($ x 10^5)')
-        # Apply same legend formatting to L2 plot
-        handles, labels = ax_l2.get_legend_handles_labels()
+        #ax_L.axvline(self.cm_data.net_earnings_no_contract_L_df.sum().mean() / 1e5, linestyle="--",color ='black', label=f"No Contract - Average Earnings: {self.cm_data.net_earnings_no_contract_L_df.sum().mean() / 1e5:.2f}")   
+        #L Subplot configuration
+        ax_L.set_title(f'Load (L) Threatpoints vs \n(A_G = {fixed_A_G})')
+        ax_L.set_xlabel('Load Revenue ($ x 10^5)')
+        # Apply same legend formatting to L plot
+        handles, labels = ax_L.get_legend_handles_labels()
         hist_handles = handles[::2]
         line_handles = handles[1::2]
         hist_labels = labels[::2]
         line_labels = labels[1::2]
-        ax_l2.legend(hist_handles + line_handles, hist_labels + line_labels, 
+        ax_L.legend(hist_handles + line_handles, hist_labels + line_labels, 
                     ncol=2, loc='upper right',
                     fontsize=10, bbox_to_anchor=(0.98, 0.98),
-                    bbox_transform=ax_l2.transAxes,
+                    bbox_transform=ax_L.transAxes,
                     framealpha=0.8)
-        ax_l2.grid(True, axis='y', linestyle='--', alpha=0.7)
+        ax_L.grid(True, axis='y', linestyle='--', alpha=0.7)
 
         plt.tight_layout()
         if filename:
@@ -373,16 +373,16 @@ class Plotting_Class:
         fig1, axes = plt.subplots(1, 2, figsize=(14, 6))
 
         # Plot histograms of no-contract revenues
-        ax_g6 = axes[0]
-        ax_l2 = axes[1]
+        ax_G = axes[0]
+        ax_L = axes[1]
 
         # Scale values to 10^5 for better readability
-        g6_values = self.cm_data.net_earnings_no_contract_G6_df.sum().values / 1e5
-        l2_values = self.cm_data.net_earnings_no_contract_L2.values / 1e5
+        G_values = self.cm_data.net_earnings_no_contract_G_df.sum().values / 1e5
+        L_values = self.cm_data.net_earnings_no_contract_L.values / 1e5
 
         # Create histogram bins
-        bins_g6 = np.linspace(min(g6_values), max(g6_values), 19)
-        bins_l2 = np.linspace(min(l2_values), max(l2_values), 19)
+        bins_G = np.linspace(min(G_values), max(G_values), 19)
+        bins_L = np.linspace(min(L_values), max(L_values), 19)
 
         # Plot histograms
    
@@ -392,44 +392,44 @@ class Plotting_Class:
 
         # Calculate threat points for different risk aversion values
         risk_aversion_values = np.linspace(0, 1, 4)
-        zeta_g6_values = []
-        zeta_l2_values = []
+        zeta_G_values = []
+        zeta_L_values = []
         
         # Calculate CVaR values (constant for all risk aversion values)
-        cvar_g6 = calculate_cvar_left(self.cm_data.net_earnings_no_contract_G6, self.cm_data.alpha)
-        cvar_l2 = calculate_cvar_left(self.cm_data.net_earnings_no_contract_L2, self.cm_data.alpha)
-        mean_g6 = self.cm_data.net_earnings_no_contract_G6.mean()
-        mean_l2 = self.cm_data.net_earnings_no_contract_L2.mean()
+        cvar_G = calculate_cvar_left(self.cm_data.net_earnings_no_contract_G, self.cm_data.alpha)
+        cvar_L = calculate_cvar_left(self.cm_data.net_earnings_no_contract_L, self.cm_data.alpha)
+        mean_G = self.cm_data.net_earnings_no_contract_G.mean()
+        mean_L = self.cm_data.net_earnings_no_contract_L.mean()
 
         # Calculate threat points for different risk aversion values
         for A in risk_aversion_values:
-            zeta_g6 = (1-A)*mean_g6 + A*cvar_g6
-            zeta_l2 = (1-A)*mean_l2 + A*cvar_l2
-            zeta_g6_values.append(zeta_g6/1e5)
-            zeta_l2_values.append(zeta_l2/1e5)
+            zeta_G = (1-A)*mean_G + A*cvar_G
+            zeta_L = (1-A)*mean_L + A*cvar_L
+            zeta_G_values.append(zeta_G/1e5)
+            zeta_L_values.append(zeta_L/1e5)
 
         prop_cycle = plt.rcParams['axes.prop_cycle']
         colors = prop_cycle.by_key()['color']
 
-        ax_g6.hist(g6_values, bins=bins_g6, alpha=0.6, color='blue', density=False)
-        for i,zeta in enumerate(zeta_g6_values):
+        ax_G.hist(G_values, bins=bins_G, alpha=0.6, color='blue', density=False)
+        for i,zeta in enumerate(zeta_G_values):
             current_color = colors[i % len(colors)]  # Cycle through colors
-            ax_g6.axvline(zeta, linestyle="--", color=current_color, label=f'A_G6={risk_aversion_values[i]:.2f} - Threat Point: {zeta:.2f}')
-        ax_g6.set_title('Generator (G6) No-Contract Revenue Distribution')
-        ax_g6.set_xlabel('Generator Revenue ($ x 10^5)')
-        ax_g6.set_ylabel('Frequency')
-        ax_g6.grid(True, axis='y', linestyle='--', alpha=0.7)
-        ax_g6.legend()
+            ax_G.axvline(zeta, linestyle="--", color=current_color, label=f'A_G={risk_aversion_values[i]:.2f} - Threat Point: {zeta:.2f}')
+        ax_G.set_title('Generator (G) No-Contract Revenue Distribution')
+        ax_G.set_xlabel('Generator Revenue ($ x 10^5)')
+        ax_G.set_ylabel('Frequency')
+        ax_G.grid(True, axis='y', linestyle='--', alpha=0.7)
+        ax_G.legend()
 
-        ax_l2.hist(l2_values, bins=bins_l2, alpha=0.6, color='green', density=False)
-        for i,zeta in enumerate(zeta_l2_values):
+        ax_L.hist(L_values, bins=bins_L, alpha=0.6, color='green', density=False)
+        for i,zeta in enumerate(zeta_L_values):
             current_color = colors[i % len(colors)]
-            ax_l2.axvline(zeta, linestyle="--", color=current_color, label=f'A_L2={risk_aversion_values[i]:.2f} - Threat Point: {zeta:.2f}')
-        ax_l2.set_title('Load (L2) No-Contract Revenue Distribution')
-        ax_l2.set_xlabel('Load Revenue ($ x 10^5)')
-        ax_l2.set_ylabel('Frequency')
-        ax_l2.grid(True, axis='y', linestyle='--', alpha=0.7)
-        ax_l2.legend()
+            ax_L.axvline(zeta, linestyle="--", color=current_color, label=f'A_L={risk_aversion_values[i]:.2f} - Threat Point: {zeta:.2f}')
+        ax_L.set_title('Load (L) No-Contract Revenue Distribution')
+        ax_L.set_xlabel('Load Revenue ($ x 10^5)')
+        ax_L.set_ylabel('Frequency')
+        ax_L.grid(True, axis='y', linestyle='--', alpha=0.7)
+        ax_L.legend()
 
         if filename:
             filepath = os.path.join(self.plots_dir, filename)

@@ -7,19 +7,22 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from gurobipy import GRB
 from utils import Expando, build_dataframe, calculate_cvar_left, simulate_price_scenarios,analyze_price_distribution, calculate_cvar_right
+from Barter_Set import Barter_Set
 from tqdm import tqdm
 import scipy.stats as stats
 from matplotlib.patches import Polygon # Import added at the top of the file
 import seaborn as sns
 import os
+from numpy.random import laplace
+
 
 class ContractNegotiation:
     """
     Implements contract negotiation between generator and load using Nash bargaining.
     """
-    def __init__(self, input_data, opf_results,old_obj_func=False):
+    def __init__(self, input_data, provider,old_obj_func=False):
         self.data = input_data
-        self.opf_results = opf_results
+        self.provider = provider
         self.old_obj_func = old_obj_func
         self.results = Expando()
         self.scipy_results = Expando()
@@ -33,162 +36,229 @@ class ContractNegotiation:
 
     def _build_statistics(self):
         """Calculate statistical measures needed for negotiation."""
-        # Build price dataframe
-        self.data.price_df = build_dataframe(self.opf_results.price['N3'], 'price')
-        self.data.price_true = self.data.price_df.values
+        # Load data from Forecast or OPF 
 
+        price_mat  = self.provider.price_matrix() # if forecast is used ('N3') is redudant, but causes no error 
+        prod_mat   = self.provider.production_matrix() # # if forecast is used ('G') is redudant, but causes no error 
+        CR_mat  = self.provider.capture_rate_matrix()
+        # Days in per month
+        #self.data.days_in_month = prod_mat.index.to_series().groupby(prod_mat.index.to_period('M')).first().dt.days_in_month
+        #self.data.hours_in_day = 24# hours in a day 
+        #self.data.hours_in_month = self.data.days_in_month * self.data.hours_in_day # hours in a month
+        self.data.hours_in_year = 8760 # hours in a year    
+        self.data.PROB = self.provider.probability
+        self.data.price_true = price_mat
+        self.data.capture_rate = CR_mat.values
+        self.data.retail_price = 0
+
+        self.data.retail_aggregated = self.data.retail_price *  self.data.hours_in_year *1000  # Retail price aggregated over time periods $/GWh
+        
+        # Just temporary upscaling load capacity to match production to some extent
+        self.data.load_scenarios = self.data.load_scenarios *0.75 # Upscale load capacity for Load
+        
+        #self.data.K_G = -0.6
+        #self.data.K_L = -0.7
 
         # Calculate biased prices
-        self.data.price_G6 = (self.data.K_G6 * self.data.price_true.mean()) + self.data.price_df.values
-        self.data.price_L2 = (self.data.K_L2 * self.data.price_true.mean()) + self.data.price_df.values
+        self.data.price_G = (self.data.K_G * self.data.price_true.mean()) + self.data.price_true
+        self.data.price_L = (self.data.K_L * self.data.price_true.mean()) + self.data.price_true
 
+       
         # Generator production
-        self.data.generator_production_df = build_dataframe(self.opf_results.generator_production['G6'], 'generator_production')
-        self.data.generator_production = self.data.generator_production_df.values
-
+        self.data.generator_production_df = pd.DataFrame(prod_mat)
+        self.data.generator_production = prod_mat
         self.data.price_mean_true = self.data.price_true.mean() # Mean price at node N3
         self.data.price_std_true = self.data.price_true.std(ddof=1) # Std price at node N3
 
-        # Make distributions for the price at node N3
-        self.data.price_aggregated = self.data.price_true.sum() # Aggregated price at node N3 (average over scenarios) 
-        
+        # for adding fatter tail to tdistirbution
+        #scale = 0.15 * self.data.price_true.mean()  # or tweak as needed
+        #noise = laplace(loc=0.0, scale=scale, size=self.data.price_true.shape)
+        #self.data.price_true += noise
+
         #Make this a call from utility function 
-        self.data.net_earnings_no_contract_G6_df =build_dataframe(self.opf_results.generator_revenue['G6'],'generator_revenue')
-        self.data.net_earnings_no_contract_G6 = self.data.net_earnings_no_contract_G6_df.sum() # Generator G6 earnings in numpy array for calculations ( Total Sum per Scenario)
-        #self.data.net_earnings_no_contract_L2_df = pd.DataFrame(self.data.load_capacity['L2']*(self.data.retail_price-self.data.price_L2)).sum(axis=0) # Load L2 earnings in numpy array for calculations
+        self.data.net_earnings_no_contract_G_df=  self.data.capture_rate * self.data.generator_production_df*self.data.price_true
+        # True net earnings for G given correct price distribution
+        self.data.net_earnings_no_contract_true_G = self.data.net_earnings_no_contract_G_df.sum(axis=0) # Generator G earnings in numpy array for calculations ( Total Sum per Scenario)
+        # Biased net earnings for G given biased price distribution K
+        self.data.net_earnings_no_contract_priceG_G_df = self.data.capture_rate * self.data.generator_production_df*self.data.price_G
+        self.data.net_earnings_no_contract_priceG_G =  self.data.net_earnings_no_contract_priceG_G_df.sum()
+        # Load L earnings in numpy array for calculations
+        self.data.net_earnings_no_contract_true_L = (self.data.load_scenarios*( - self.data.price_true)).sum(axis=0)
+        # Load L earnings in numpy array for calculations
+        self.data.net_earnings_no_contract_priceL_L = (self.data.load_scenarios*(-self.data.price_L)).sum(axis=0)
         
-        self.data.net_earnings_no_contract_L2 = (self.data.load_capacity['L2']*(self.data.retail_price-self.data.price_L2)).sum(axis=0)# Load L2 earnings in numpy array for calculations
-        #CVaR calculation of No contract 
-        self.data.CVaR_no_contract_G6 = calculate_cvar_left(self.data.net_earnings_no_contract_G6,self.data.alpha) # CVaR for G6
-        self.data.CVaR_no_contract_L2 = calculate_cvar_left(self.data.net_earnings_no_contract_L2,self.data.alpha)
+        #CVaR calculation of No contract (TRue )
+        self.data.CVaR_no_contract_priceG_G = calculate_cvar_left(self.data.net_earnings_no_contract_priceG_G,self.data.alpha) # CVaR for G
+        self.data.CVaR_no_contract_priceL_L = calculate_cvar_left(self.data.net_earnings_no_contract_priceL_L,self.data.alpha)
+
+        # New Utility Function 
+        self.data.Zeta_G=(1-self.data.A_G)*self.data.net_earnings_no_contract_priceG_G.mean() + self.data.A_G*self.data.CVaR_no_contract_priceG_G
+        self.data.Zeta_L=(1-self.data.A_L)*self.data.net_earnings_no_contract_priceL_L.mean() + self.data.A_L*self.data.CVaR_no_contract_priceL_L
 
         # Threat Points for generator and Load 
-
-        if self.old_obj_func == True:
-            # Original Utility Function 
-            self.data.Zeta_G6=self.data.net_earnings_no_contract_G6.mean() + self.data.A_G6*self.data.CVaR_no_contract_G6
-            self.data.Zeta_L2=self.data.net_earnings_no_contract_L2.mean() + self.data.A_L2*self.data.CVaR_no_contract_L2
-        else:
-            # New Utility Function
-            self.data.Zeta_G6=(1-self.data.A_G6)*self.data.net_earnings_no_contract_G6.mean() + self.data.A_G6*self.data.CVaR_no_contract_G6
-            self.data.Zeta_L2=(1-self.data.A_L2)*self.data.net_earnings_no_contract_L2.mean() + self.data.A_L2*self.data.CVaR_no_contract_L2
-
+      
         num_scenarios = self.data.price_true.shape[1]  # Match your existing number of scenarios
-        time_periods = self.data.price_true.shape[0]   # Match your existing time periods
-
-        if self.old_obj_func == True:
-            self.data.lambda_sum_true_per_scenario = self.data.price_true.sum(axis=0) # Sum across time periods for each scenario
-            # Calculate E^P(λ∑) - Expected value of the sum over T (using TRUE distribution)
-            self.data.expected_lambda_sum_true = self.data.lambda_sum_true_per_scenario.mean()
-            # Calculate CVaR^P(λ∑) - CVaR of the sum over T (using TRUE distribution)
-            # Assumes calculate_cvar returns the expected value of the variable *given* it's in the alpha-tail
-            self.data.cvar_lambda_sum_true = calculate_cvar_left(self.data.lambda_sum_true_per_scenario, self.data.alpha)
-
-            # Calculate CVaR^P(-λ∑) - CVaR of the negative sum over T (using TRUE distribution)
-            # This corresponds to the risk of low LMPs
-            self.data.cvar_neg_lambda_sum_true = calculate_cvar_left(-self.data.lambda_sum_true_per_scenario, self.data.alpha)
-            # Determine the *absolute* bias constants K_G and K_L for the equations
-            # Based on Theorem 1, K_G/K_L are absolute shifts.:
-            # K_G_abs = self.data.K_G6 * self.data.expected_lambda_sum_true
-            # K_L_abs = self.data.K_L2 * self.data.expected_lambda_sum_true
-            # Using the current variables directly as the absolute K values:
-            K_G_abs = self.data.K_G6
-            K_L_abs = self.data.K_L2
-
-            # Calculate the denominators T * (1 + A)
-            denom_G = time_periods * (1 + self.data.A_G6)
-            denom_L = time_periods * (1 + self.data.A_L2)
-
-            # Avoid division by zero if A_G or A_L happens to be -1 (unlikely but safe)
-            if abs(denom_G) < 1e-9: denom_G = 1e-9 # Use a small number instead of zero
-            if abs(denom_L) < 1e-9: denom_L = 1e-9 # Use a small number instead of zero
-
-            # Calculate Term 1 (GenCo perspective, risk of high LMPs)
-            # E^P(λ∑) + A_G*CVaR^P(λ∑) + (1 + A_G)*K_G
-            term1_G = (self.data.expected_lambda_sum_true + self.data.A_G6 * self.data.cvar_lambda_sum_true + (1 + self.data.A_G6) * K_G_abs) / denom_G
-
-            # Calculate Term 2 (GenCo perspective, risk of low LMPs -> using CVaR of negative sum)
-            # E^P(λ∑) - A_G*CVaR^P(-λ∑) + (1 + A_G)*K_G
-            term2_G = (self.data.expected_lambda_sum_true - self.data.A_G6 * self.data.cvar_neg_lambda_sum_true + (1 + self.data.A_G6) * K_G_abs) / denom_G
-
-            # Calculate Term 3 (LSE perspective, risk of low LMPs, for SR*)
-            # E^P(λ∑) + (1 + A_L)*K_L - A_L*CVaR^P(-λ∑)
-            term3_L_SR = (self.data.expected_lambda_sum_true + (1 + self.data.A_L2) * K_L_abs - self.data.A_L2 * self.data.cvar_neg_lambda_sum_true) / denom_L
-
-            # Calculate Term 4 (LSE perspective, risk of high LMPs, for SU*)
-            # E^P(λ∑) + (1 + A_L)*K_L + A_L*CVaR^P(λ∑)
-            term4_L_SU = (self.data.expected_lambda_sum_true + (1 + self.data.A_L2) * K_L_abs + self.data.A_L2 * self.data.cvar_lambda_sum_true) / denom_L
-
-            # Calculate SR* using Equation (27) - Minimum of the relevant terms
-            self.data.SR_star = np.min([term1_G, term2_G, term3_L_SR])
-
-            # Calculate SU* using Equation (28) - Maximum of the relevant terms
-            self.data.SU_star = np.max([term1_G, term2_G, term4_L_SU])
-
-
-            # Print calculated critical bounds for verification during runtime
-            print(f"Calculated SR* (Eq 27): {self.data.SR_star:.5f}")
-            print(f"Calculated SU* (Eq 28): {self.data.SU_star:.5f}")
-
-
-        # Generate scenarios using different distributions
+        time_periods = self.data.price_true.shape[0] # Match your existing time periods
+        time_periods_hours = time_periods * self.data.hours_in_year  # Total hours in the time period
+            
+        self.data.lambda_sum_true_per_scenario = self.data.price_true.sum(axis=0) # Sum across time periods for each scenario
+        self.data.lambda_sum_G_per_scenario = self.data.price_G.sum(axis=0) # Sum across time periods for each scenario
+        self.data.lambda_sum_L_per_scenario = self.data.price_L.sum(axis=0) # Sum across time periods for each scenario
+        # Calculate E^P(λ∑) - Expected value of the sum over T (using TRUE distribution)
+        self.data.expected_lambda_sum_true = self.data.lambda_sum_true_per_scenario.mean()
         
-        # Make distributions for the price at node N3
-        self.data.pdf_true = stats.norm.pdf(self.data.price_true, self.data.price_mean_true, self.data.price_std_true) # True distribution 
-        self.data.sim_prices_G6 = simulate_price_scenarios(self.data.price_true,self.data.K_G6, num_scenarios,time_periods, 'normal')
-        self.data.sim_prices_L2 = simulate_price_scenarios(self.data.price_true,self.data.K_L2, num_scenarios,time_periods, 'normal')
+        # Capture Prices and Capture Rate 
 
-        #lognormal_scenarios = simulate_price_scenarios(self.data.price_true, num_scenarios, 'lognormal')
-        #empirical_scenarios = simulate_price_scenarios(self.data.price_true, num_scenarios, 'empirical')
+        self.data.Capture_price = self.data.price_true * self.data.capture_rate  # Capture price for G (per month)
+        self.data.Capture_price_h = self.data.Capture_price / self.data.hours_in_year  # Capture price per hour for G
+        self.data.Capture_rate = self.data.Capture_price / self.data.price_true.mean(axis=0)  # Capture rate for G (should it be the total mean price or the mean price per scenario?)
 
-        # Analyze distributions
-        simulated_prices = {
-            'normal G6': self.data.sim_prices_G6,
-            'normal L2': self.data.sim_prices_L2,
-            #'lognormal': lognormal_scenarios,
-            #'empirical': empirical_scenarios
-        }
-        #distribution_analysis = analyze_price_distribution(self.data.price_true, simulated_prices)
+        # Average Capture Price and Rate 
+        self.data.Capture_price_avg = self.data.Capture_price_h.mean()
+        Capture_rate_avg = self.data.Capture_rate.mean()
+
+        # Calculate CVaR^P(λ∑) - CVaR of the sum over T (using TRUE distribution)
+        # Assumes calculate_cvar returns the expected value of the variable *given* it's in the alpha-tail
+        self.data.left_Cvar_capture_lambda_sum_true = calculate_cvar_left(self.data.Capture_rate*self.data.lambda_sum_true_per_scenario, self.data.alpha)
+        self.data.left_cvar_lambda_sum_true = calculate_cvar_left(self.data.lambda_sum_true_per_scenario, self.data.alpha)
+        self.data.right_cvar_lambda_sum_true = calculate_cvar_right(self.data.lambda_sum_true_per_scenario, self.data.alpha)
+
+        # Calculate CVaR^P(-λ∑) - CVaR of the negative sum over T (using TRUE distribution)
+        # This corresponds to the risk of low LMPs
+        self.data.left_Cvar_neg_lambda_sum_true = calculate_cvar_left(-self.data.lambda_sum_true_per_scenario, self.data.alpha) 
+        self.data.left_Cvar_neg_capture_lambda_sum_true = calculate_cvar_left(-self.data.Capture_rate*self.data.lambda_sum_true_per_scenario, self.data.alpha) 
+        self.data.right_cvar_neg_lambda_sum_true = calculate_cvar_left(-self.data.lambda_sum_true_per_scenario, self.data.alpha)
+
+        # Determine the *absolute* bias constants K_G and K_L for the equations
+        # Based on Theorem 1, K_G/K_L are absolute shifts.:
+        self.data.K_G_lambda_Sigma = self.data.K_G * self.data.expected_lambda_sum_true
+        self.data.K_L_lambda_Sigma = self.data.K_L * self.data.expected_lambda_sum_true
+
+       
+        # Using the current variables directly as the absolute K values:
+  
+        # Calculate the denominators T * (1 + A)
+        denom_G = time_periods * (1 + self.data.A_G)
+        denom_L = time_periods * (1 + self.data.A_L)
+
+        # Avoid division by zero if A_G or A_L happens to be -1 (unlikely but safe)
+        if abs(denom_G) < 1e-9: denom_G = 1e-9 # Use a small number instead of zero
+        if abs(denom_L) < 1e-9: denom_L = 1e-9 # Use a small number instead of zero
+
+        ############################################## Old defintion ##########################################################################
+
+        # Calculate Term 1 (GenCo perspective, risk of high LMPs)
+        # E^P(λ∑) + A_G*CVaR^P(λ∑) + (1 + A_G)*K_G
+        term1_G_org =((self.data.expected_lambda_sum_true + self.data.A_G * self.data.right_cvar_lambda_sum_true + (1 + self.data.A_G) *  self.data.K_G_lambda_Sigma)) / denom_G
+        testterm1_G_org = (self.data.expected_lambda_sum_true + self.data.A_G * self.data.left_cvar_lambda_sum_true + (1 + self.data.A_G) *  self.data.K_G_lambda_Sigma) / denom_G
+
+        # Calculate Term 2 (GenCo perspective, risk of low LMPs -> using CVaR of negative sum)
+        # E^P(λ∑) - A_G*CVaR^P(-λ∑) + (1 + A_G)*K_G
+        term2_G_org = ((self.data.expected_lambda_sum_true - self.data.A_G * self.data.right_cvar_neg_lambda_sum_true + (1 + self.data.A_G) *  self.data.K_G_lambda_Sigma)) / denom_G
+        testterm2_G_org = (self.data.expected_lambda_sum_true - self.data.A_G * self.data.left_Cvar_neg_lambda_sum_true + (1 + self.data.A_G) *  self.data.K_G_lambda_Sigma) / denom_G
+
+        # Calculate Term 3 (LSE perspective, risk of low LMPs, for SR*)
+        # E^P(λ∑) + (1 + A_L)*K_L - A_L*CVaR^P(-λ∑)
+        term3_L_SR_org = (self.data.expected_lambda_sum_true + (1 + self.data.A_L) *self.data.K_L_lambda_Sigma - self.data.A_L * self.data.right_cvar_neg_lambda_sum_true) / denom_L
+        testterm4_L_SU_org = (self.data.expected_lambda_sum_true + (1 + self.data.A_L) *self.data.K_L_lambda_Sigma - self.data.A_L * self.data.left_Cvar_neg_lambda_sum_true ) / denom_L
+
+        # Calculate Term 4 (LSE perspective, risk of high LMPs, for SU*)
+        # E^P(λ∑) + (1 + A_L)*K_L + A_L*CVaR^P(λ∑)
+        term4_L_SU_org = (self.data.expected_lambda_sum_true + (1 + self.data.A_L) * self.data.K_L_lambda_Sigma + self.data.A_L * self.data.right_cvar_lambda_sum_true) / denom_L
+        testterm3_L_SR_org = (self.data.expected_lambda_sum_true + (1 + self.data.A_L) * self.data.K_L_lambda_Sigma + self.data.A_L * self.data.left_cvar_lambda_sum_true) / denom_L
+
+        # Calculate SR* using Equation (27) - Minimum of the relevant terms
+        self.data.SR_star_old = np.min([term1_G_org, term2_G_org, term3_L_SR_org]) * 1e3 # Convert from $/GWh to $/MWh
+        testsr = np.min([testterm1_G_org, testterm2_G_org, testterm3_L_SR_org]) *1e3 # Convert from $/GWh to $/MWh
+        testsu = np.max([testterm1_G_org, testterm2_G_org, testterm4_L_SU_org] ) * 1e3 # Convert from $/GWh to $/MWh
+
+        # Calculate SU* using Equation (28) - Maximum of the relevant terms
+        self.data.SU_star_old = np.max([term1_G_org, term2_G_org, term4_L_SU_org]) * 1e3
+
+
+        # Print calculated critical bounds for verification during runtime
+        print(f"Calculated SR* using original (Eq 27): {self.data.SR_star_old:.5f}")
+        print(f"Calculated SU* using original (Eq 28): {self.data.SU_star_old:.5f}")
+
+        print(f"Calculated SR* using test left (Eq 27): {testsr:.5f}")
+        print(f"Calculated SU* using test left (Eq 28): {testsu:.5f}")
+
+        # New Objective function defition 
+        
+        
+        self.data.term1_G_new =(( (1-self.data.A_G) * self.data.expected_lambda_sum_true +self.data.K_G_lambda_Sigma ) - self.data.A_G * self.data.left_Cvar_neg_capture_lambda_sum_true)/ time_periods    # SR* numerator for Gen
+
+        # high-price risk (feeds S_U*)
+        self.data.term2_G_new = (((1-self.data.A_G) * self.data.expected_lambda_sum_true + self.data.K_G_lambda_Sigma ) + self.data.A_G * self.data.left_Cvar_capture_lambda_sum_true) / time_periods     # SU* numerator for Gen
+  
+        # Load-serving entity ––––––––––––––––––––––––––––––––––––––––––––––
+        # low-price risk  (feeds S_R*)
+        self.data.term3_L_SR_new = (self.data.expected_lambda_sum_true
+                        + self.data.A_L * self.data.left_cvar_lambda_sum_true
+                        + self.data.K_L_lambda_Sigma - self.data.A_L * self.data.expected_lambda_sum_true  ) / time_periods   # SU* numerator for LSE
+        # high-price risk (feeds S_U*)
+        self.data.term4_L_SU_new = ( self.data.expected_lambda_sum_true
+                        - self.data.A_L * self.data.left_Cvar_neg_lambda_sum_true
+                        + self.data.K_L_lambda_Sigma  - self.data.A_L * self.data.expected_lambda_sum_true )  / time_periods   # SR* numerator for LSE
+
+
+
+
+         # Calculate SR* using Equation (27) - Minimum of the relevant terms
+        self.data.SR_star_new = np.min([self.data.term1_G_new, self.data.term2_G_new, self.data.term3_L_SR_new])   # Convert from $/GWh to $/MWh
+
+        # Calculate SU* using Equation (28) - Maximum of the relevant terms
+        self.data.SU_star_new = np.max([self.data.term1_G_new, self.data.term2_G_new, self.data.term4_L_SU_new])  
+
+        
+        # Print calculated critical bounds for verification during runtime
+        print(f"Calculated SR* using New (Eq 27) (Yearly Price [Mio EUR/GWh]): {self.data.SR_star_new:.5f}")
+        print(f"Calculated SU* using new (Eq 28) (Yearly Price [Mio EUR/GWh]: {self.data.SU_star_new:.5f}")
+
+        print(f"Calculated SR* using New (Eq 27) (Hourly Price [EUR/MWh]): {self.data.SR_star_new/self.data.hours_in_year*1e3:.5f}")
+        print(f"Calculated SU* using new (Eq 28) (Hourly Price [EUR/MWh]: {self.data.SU_star_new/self.data.hours_in_year*1e3:.5f}")
+        print()
+
 
     def _build_variables(self):
         """Build optimization variables for contract negotiation."""
         # Auxiliary variables for logaritmic terms
-
-        self.variables.arg_G6 = self.model.addVar(lb=0, name="UG6_minus_ZetaG6")
-        self.variables.arg_L2 = self.model.addVar(lb=0, name="UL2_minus_ZetaL2")
+        EPS = 1e-4               # pick something natural for your scale
+        self.variables.arg_G = self.model.addVar(lb=EPS, name="UG_minus_ZetaG")
+        self.variables.arg_L = self.model.addVar(lb=EPS, name="UL_minus_ZetaL")
 
         # Define logarithmic terms
-        self.variables.log_arg_G6 = self.model.addVar(lb=0,name="log_arg_G6")
-        self.variables.log_arg_L2 = self.model.addVar(lb=0,name="log_arg_L2")
+        self.variables.log_arg_G = self.model.addVar(lb=EPS,name="log_arg_G")
+        self.variables.log_arg_L = self.model.addVar(lb=EPS,name="log_arg_L")
 
            # build strike price variables
         self.variables.S = self.model.addVar(
-            lb=self.data.strikeprice_min,
-            ub=self.data.strikeprice_max,
+            lb=self.data.strikeprice_min * self.data.hours_in_year * 1e-3,  # Convert to $/MWh
+            ub=self.data.strikeprice_max * self.data.hours_in_year * 1e-3,
             name='Strike_Price'
         )
 
         # build contract amount variables
         self.variables.M = self.model.addVar(
             lb=self.data.contract_amount_min,
-            ub=self.data.contract_amount_max,
+            ub=self.data.contract_amount_max * self.data.hours_in_year * 1e-3,
             name='Contract Amount'
         )
    
-        self.variables.zeta_G6 = self.model.addVar(
-            name='Zeta_Auxillary_G6',
+        self.variables.zeta_G = self.model.addVar(
+            name='Zeta_Auxillary_G',
             lb=-gp.GRB.INFINITY,ub=gp.GRB.INFINITY)
-        self.variables.zeta_L2 = self.model.addVar(
-            name='Zeta_Auxillary_L2',
+        self.variables.zeta_L = self.model.addVar(
+            name='Zeta_Auxillary_L',
             lb=-gp.GRB.INFINITY,ub=gp.GRB.INFINITY)
       
-        self.variables.eta_G6 = {s: self.model.addVar(
-            name='Auxillary_Variable_G6_{0}'.format(s),
+        self.variables.eta_G = {s: self.model.addVar(
+            name='Auxillary_Variable_G_{0}'.format(s),
             lb=0,ub=gp.GRB.INFINITY)
             for s in self.data.SCENARIOS_L
         }
-        self.variables.eta_L2 = {s: self.model.addVar(
-            name='Auxillary_Variable_L2_{0}'.format(s),
+        self.variables.eta_L = {s: self.model.addVar(
+            name='Auxillary_Variable_L_{0}'.format(s),
             lb=0,ub=gp.GRB.INFINITY)
             for s in self.data.SCENARIOS_L
         }
@@ -198,92 +268,99 @@ class ContractNegotiation:
     def _build_constraints(self):
         """Build constraints for contract negotiation."""
          # Single Strike Price Constraint
-        self.constraints.strike_price_constraint =  self.model.addLConstr(
-        self.variables.S<=self.data.strikeprice_max,
+        self.constraints.strike_price_constraint_max =  self.model.addLConstr(
+        self.variables.S<=self.data.strikeprice_max * 1e-3 * self.data.hours_in_year,
         name='Strike_Price_Constraint_Max'
         )
         
         
-         #Strike Price min  constraints
-        self.constraints.strike_price_constraint_min = self.model.addLConstr(
-            self.data.strikeprice_min <= self.variables.S,
-            name='Strike_Price_Constraint_Min'
+        self.constraints.strike_price_constraint_min =  self.model.addLConstr(
+        self.variables.S>=self.data.strikeprice_min *  1e-3 * self.data.hours_in_year ,
+        name='Strike_Price_Constraint_Max'
         )
 
         #Contract amounts 
         
         #Contract amount constraints
         self.constraints.contract_amount_constraint_max = self.model.addLConstr(
-           self.variables.M <= self.data.contract_amount_max,
+           self.variables.M <= self.data.contract_amount_max * 1e-3 * self.data.hours_in_year,  # Convert to GWh/year
             name='Contract Amount Constraint Max'
         )
          #Contract amount constraints
         self.constraints.contract_amount_constraint_min = self.model.addLConstr(
-            self.data.contract_amount_min <= self.variables.M,
+            self.data.contract_amount_min <= self.variables.M ,  # Convert to GWh/year
             name='Contract Amount Constraint Min'
         )
 
         #Logarithmic constraints
-        self.model.addGenConstrLog(self.variables.arg_G6, self.variables.log_arg_G6, "log_G6")
-        self.model.addGenConstrLog(self.variables.arg_L2, self.variables.log_arg_L2, "log_L2")
+        self.model.addGenConstrLog(self.variables.arg_G, self.variables.log_arg_G, "log_G")
+        self.model.addGenConstrLog(self.variables.arg_L, self.variables.log_arg_L, "log_L")
         
-        self.constraints.eta_G6_constraint = {
+        self.constraints.eta_G_constraint = {
             s: self.model.addConstr(
-            self.variables.eta_G6[s] >=self.variables.zeta_G6 - gp.quicksum((self.data.price_G6[t,s]-self.data.generator_cost_a['G6'])*self.data.generator_production[t,s]-self.data.generator_cost_b['G6']*(self.data.generator_production[t,s]*self.data.generator_production[t,s])
-                                                                            +( self.variables.S- self.data.price_G6[t,s])*self.variables.M for t in self.data.TIME),
-            name='Eta_Aversion_Constraint_G6_in_scenario_{0}'.format(s)
+            #With costs
+            #self.variables.eta_G[s] >=self.variables.zeta_G - gp.quicksum((self.data.price_G[t,s]-self.data.generator_cost_a['G'])*self.data.generator_production[t,s]-self.data.generator_cost_b['G']*(self.data.generator_production[t,s]*self.data.generator_production[t,s])
+            #                                                                +( self.variables.S- self.data.price_G[t,s])*self.variables.M for t in self.data.TIME),
+            self.variables.eta_G[s] >=(self.variables.zeta_G - gp.quicksum(self.data.capture_rate[t,s]*self.data.price_G.iat[t,s]*self.data.generator_production.iat[t,s]
+                                                                           +( (self.variables.S)- self.data.price_G.iat[t,s])*(self.variables.M) for t in self.data.TIME)),
+            name='Eta_Aversion_Constraint_G_in_scenario_{0}'.format(s)
         )
         for s in self.data.SCENARIOS_L
         }
-        self.constraints.eta_L2_constraint = {
+        self.constraints.eta_L_constraint = {
             s: self.model.addConstr(
-            self.variables.eta_L2[s] >=self.variables.zeta_L2 - gp.quicksum(self.data.load_capacity['L2'][t,s]*(self.data.retail_price-self.data.price_L2[t,s])
-                                                                            +(self.data.price_L2[t,s] - self.variables.S)*self.variables.M for t in self.data.TIME),
-            name='Eta_Aversion_Constraint_L2_in_scenario_{0}'.format(s)
+            self.variables.eta_L[s] >=(self.variables.zeta_L - gp.quicksum(self.data.load_scenarios[t,s]*(self.data.retail_aggregated-self.data.price_L.values[t,s])
+                                                                            +(self.data.price_L.values[t,s] - (self.variables.S))*(self.variables.M) for t in self.data.TIME)),
+            name='Eta_Aversion_Constraint_L_in_scenario_{0}'.format(s)
         )
         for s in self.data.SCENARIOS_L
         }
+        
 
         self.model.update()
 
     def _build_objective(self):
         """Build the objective function for contract negotiation."""
-        #Expected Earnings function for G6 
-        EuG6 =  gp.quicksum((self.data.price_G6[t,s]-self.data.generator_cost_a['G6'])*self.data.generator_production[t,s]-self.data.generator_cost_b['G6']*(self.data.generator_production[t,s]*self.data.generator_production[t,s]) for t in self.data.TIME for s in self.data.SCENARIOS_L)
-        SMG6 =  gp.quicksum(( self.variables.S - self.data.price_G6[t,s])*self.variables.M for t in self.data.TIME for s in self.data.SCENARIOS_L)
-        #CVaR for G6 
-        CVaRG6 = self.variables.zeta_G6 - (1/(1-self.data.alpha))*gp.quicksum((self.data.PROB*self.variables.eta_G6[s])  for s in self.data.SCENARIOS_L)
+        #Expected Earnings function for G 
+        #EuG =  gp.quicksum((self.data.price_G[t,s]-self.data.generator_cost_a['G'])*self.data.generator_production[t,s]-self.data.generator_cost_b['G']*(self.data.generator_production[t,s]*self.data.generator_production[t,s]) for t in self.data.TIME for s in self.data.SCENARIOS_L)
+        EuG =  gp.quicksum(self.data.capture_rate[t,s]*self.data.price_G.iat[t,s]*self.data.generator_production.iat[t,s] for t in self.data.TIME for s in self.data.SCENARIOS_L)
+        SMG =  gp.quicksum((self.variables.S- self.data.price_G.iat[t,s])*(self.variables.M ) for t in self.data.TIME for s in self.data.SCENARIOS_L)
+        #CVaR for G 
+        CVaRG = self.variables.zeta_G - (1/(1-self.data.alpha))*gp.quicksum((self.data.PROB*self.variables.eta_G[s])  for s in self.data.SCENARIOS_L)
 
 
-        #Expected Earnings for L2
-        EuL2 = gp.quicksum(self.data.load_capacity['L2'][t,s]*(self.data.retail_price-self.data.price_L2[t,s]) for t in self.data.TIME for s in self.data.SCENARIOS_L)
-        SML2 =  gp.quicksum((self.data.price_L2[t,s] - self.variables.S)*self.variables.M for t in self.data.TIME for s in self.data.SCENARIOS_L) # contract for capaicty - so am using generator capacity
-        #CvaR for L2
-        CVaRL2 = self.variables.zeta_L2 - (1/(1-self.data.alpha))*gp.quicksum((self.data.PROB*self.variables.eta_L2[s])  for s in self.data.SCENARIOS_L)
+        #Expected Earnings for L
+        EuL = gp.quicksum(self.data.load_scenarios[t,s]*(self.data.retail_aggregated-self.data.price_L.iat[t,s]) for t in self.data.TIME for s in self.data.SCENARIOS_L)
+        SML =  gp.quicksum((self.data.price_L.iat[t,s] - (self.variables.S))*(self.variables.M)for t in self.data.TIME for s in self.data.SCENARIOS_L) # contract for capaicty - so am using generator capacity
+        #CvaR for L
+        CVaRL = self.variables.zeta_L - (1/(1-self.data.alpha))*gp.quicksum((self.data.PROB*self.variables.eta_L[s])  for s in self.data.SCENARIOS_L)
 
         #Build Utiltiy Functions 
         if self.old_obj_func == True:
-            UG6 = self.data.PROB*(EuG6+SMG6) + self.data.A_G6*CVaRG6
-            UL2 = self.data.PROB*(EuL2+ SML2) + self.data.A_L2*CVaRL2
-
+            UG = self.data.PROB*(EuG+SMG) +  self.data.A_G*CVaRG
+            UL = self.data.PROB*(EuL+ SML) + self.data.A_L*CVaRL
+        
+            #UG = (1/(1+self.data.A_G)) * (self.data.PROB*(EuG+SMG) + self.data.A_G*CVaRG) 
+            #UL = (1/(1+self.data.A_L)) * (self.data.PROB*(EuL+ SML) + self.data.A_L*CVaRL)
         else:
-            UG6 = (1-self.data.A_G6)*self.data.PROB*(EuG6+SMG6) + self.data.A_G6*CVaRG6
-            UL2 = (1-self.data.A_L2)*self.data.PROB*(EuL2+ SML2) + self.data.A_L2*CVaRL2
+            UG = (1-self.data.A_G)*self.data.PROB*(EuG+SMG) + self.data.A_G*CVaRG
+            UL = (1-self.data.A_L)*self.data.PROB*(EuL+SML) + self.data.A_L*CVaRL
+           
 
 
          # Link auxiliary variables to expressions
-        self.model.addConstr(self.variables.arg_G6 == UG6 - self.data.Zeta_G6, "arg_G6_constr")
-        self.model.addConstr(self.variables.arg_L2 == UL2 - self.data.Zeta_L2, "arg_L2_constr")
+        self.model.addConstr(self.variables.arg_G == (UG - self.data.Zeta_G), "arg_G_constr")
+        self.model.addConstr(self.variables.arg_L == (UL - self.data.Zeta_L), "arg_L_constr")
 
         self.model.update()
 
         # Normal Objective function 
-        #objective = (UG6 - self.data.Zeta_G6) * (UL2-self.data.Zeta_L2)
+        #objective = (UG - self.data.Zeta_G) * (UL-self.data.Zeta_L)
         #self.model.setObjective(objective,sense = gp.GRB.MAXIMIZE)
         
         # Set logarithmic objective
         self.model.setObjective(
-            self.variables.log_arg_G6 + self.variables.log_arg_L2,
+        (self.variables.log_arg_G + self.variables.log_arg_L),
         GRB.MAXIMIZE) 
         self.model.update()
 
@@ -291,8 +368,11 @@ class ContractNegotiation:
         """Initialize and build the complete optimization model."""
         self.model = gp.Model(name='Nash Bargaining Model')
         self.model.Params.NonConvex = 2
-        #self.model.Params.OutputFlag = 0
+        self.model.Params.FeasibilityTol = 1e-6
+        self.model.Params.OutputFlag = 1
         self.model.Params.TimeLimit = 30
+        self.model.Params.ObjScale   = 1e-6
+        #self.model.Params.NumericFocus = 1
         
         self._build_variables()
         self._build_constraints()
@@ -304,46 +384,60 @@ class ContractNegotiation:
         # Save objective value, strike price, and contract amount
         self.results.objective_value = self.model.ObjVal
         self.results.strike_price = self.variables.S.x
-        self.results.contract_amount = self.variables.M.x
+        self.results.strike_price_hour = self.results.strike_price / self.data.hours_in_year * 1000  # Convert to $/MWh
+        self.results.contract_amount = self.variables.M.x  # Convert to GWh/year
+        self.results.contract_amount_hour = self.results.contract_amount / self.data.hours_in_year  * 1000  # Convert to GWh/hour
+        self.results.capture_price = self.data.Capture_price_avg
 
+        # Save their 'actual' values based on the true distribution 
         # Calculate revenues with contract
-        EuG6 = self.data.net_earnings_no_contract_G6
+        EuG = self.data.net_earnings_no_contract_priceG_G
 
-        SMG6 = (self.results.strike_price - self.data.price_true) * self.results.contract_amount
+        SMG = ((self.results.strike_price - self.data.price_G) * self.results.contract_amount).sum(axis=0)  # Sum across time periods for each scenario
 
-        # Calculate CVaR for results G6 
-        self.results.CVaRG6 = calculate_cvar_left(EuG6 + SMG6.sum(axis=0), self.data.alpha)
+        # Calculate CVaR for results G 
+        self.results.CVaRG = calculate_cvar_left(EuG + SMG, self.data.alpha)
 
-        # Calculate revenues for L2
-        EuL2 = self.data.net_earnings_no_contract_L2
-        SML2 = (self.data.price_true - self.results.strike_price) * self.results.contract_amount
+        # Calculate revenues for L
+        EuL = self.data.net_earnings_no_contract_priceL_L
+        SML = ((self.data.price_L - self.results.strike_price) * self.results.contract_amount).sum(axis=0)  # Sum across time periods for each scenario
 
-        # Calculate CVaR for L2
-        self.results.CVaRL2 = calculate_cvar_left(EuL2 + SML2.sum(axis=0), self.data.alpha)
+        # Calculate CVaR for L
+        self.results.CVaRL = calculate_cvar_left(EuL + SML, self.data.alpha)
 
-        if self.old_obj_func == True:
-            self.results.utility_G6 =  (EuG6 + SMG6.sum(axis=0)).mean() + self.data.A_G6 * self.results.CVaRG6
-            self.results.utility_L2 =  (EuL2 + SML2.sum(axis=0)).mean() + self.data.A_L2 * self.results.CVaRL2
 
-        else:
-            self.results.utility_G6 = (1-self.data.A_G6) * (EuG6 + SMG6.sum(axis=0)).mean() + self.data.A_G6 * self.results.CVaRG6
-            self.results.utility_L2 = (1-self.data.A_L2) * (EuL2 + SML2.sum(axis=0)).mean() + self.data.A_L2 * self.results.CVaRL2
+        self.results.utility_G = (1-self.data.A_G) * (EuG + SMG).mean() + self.data.A_G * self.results.CVaRG
+        self.results.utility_L = (1-self.data.A_L) * (EuL + SML).mean() + self.data.A_L * self.results.CVaRL
+        
 
-        self.results.Nash_Product = (self.results.utility_G6 - self.data.Zeta_G6) * (self.results.utility_L2 - self.data.Zeta_L2)
+        self.results.Nash_Product = ((self.results.utility_G - self.data.Zeta_G) * (self.results.utility_L - self.data.Zeta_L))
         # Save accumulated revenues
-        self.results.accumulated_revenue_G6 = EuG6 + SMG6.sum(axis=0)
-        self.results.accumulated_revenue_L2 = EuL2 + SML2.sum(axis=0)
+        self.results.accumulated_revenue_True_G = EuG + SMG.sum(axis=0)
+        self.results.accumulated_revenue_True_L = EuL + SML.sum(axis=0)
+
+        # Save Biased (What they expected)
 
     def run(self):
         """Run the optimization model."""
         self.model.optimize()
+
         if self.model.status == GRB.OPTIMAL:
             self._save_results()
+            self.scipy_optimization()
+            #self.display_results()
+            self.scipy_display_results()
+            BS = Barter_Set(self.data,self.results,self.scipy_results,self.old_obj_func)
+            BS.Plotting_Barter_Set()
+        
         else:
             #self.model.write("model.lp")
             #self.model.write("model.rlp")
             #self.model.write("model.mps")
-            self._save_results()
+            #self._save_results()
+            BS = Barter_Set(self.data,self.results,self.scipy_results,self.old_obj_func)
+            self.scipy_optimization()
+            #self.scipy_display_results()
+            BS.Plotting_Barter_Set()
             raise RuntimeError(f"Optimization of {self.model.ModelName} was not successful")
 
     def display_results(self):
@@ -352,12 +446,12 @@ class ContractNegotiation:
         print(f"Optimal Objective Value (Expected Value) (Log): {self.results.objective_value}")
         print(f"Optimal Objective Value (Expected Value): {np.exp(self.results.objective_value)}")
         print(f"Nash Product with optimal S and M: {self.results.Nash_Product}")
-        print(f"Optimal Strike Price: {self.results.strike_price}")
-        print(f"Optimal Contract Amount: {self.results.contract_amount}")
-        print(f"Optimal Utility for G6: {self.results.utility_G6}")
-        print(f"Optimal Utility for L2: {self.results.utility_L2}")
-        print(f"Threat Point G6: {self.data.Zeta_G6}")
-        print(f"Threat Point L2: {self.data.Zeta_L2}")
+        print(f"Optimal Strike Price: {self.results.strike_price_hour}")
+        print(f"Optimal Contract Amount: {self.results.contract_amount_hour}")
+        print(f"Optimal Utility for G: {self.results.utility_G}")
+        print(f"Optimal Utility for L: {self.results.utility_L}")
+        print(f"Threat Point G: {self.data.Zeta_G}")
+        print(f"Threat Point L: {self.data.Zeta_L}")
 
     def manual_optimization(self, plot=False, filename=None):
         """
@@ -367,62 +461,66 @@ class ContractNegotiation:
         contract_amounts = np.linspace(self.data.contract_amount_min+150, self.data.contract_amount_max-150, 200)
         #M = 300  # Fixed contract amount
 
-        utilities_G6 = np.zeros((len(strike_prices), len(contract_amounts)))
-        utilities_L2 = np.zeros((len(strike_prices), len(contract_amounts)))
+        utilities_G = np.zeros((len(strike_prices), len(contract_amounts)))
+        utilities_L = np.zeros((len(strike_prices), len(contract_amounts)))
         combined_utilities = np.zeros((len(strike_prices), len(contract_amounts)))
         combined_utilities_log = np.zeros((len(strike_prices), len(contract_amounts)))
 
 
         """
-        Could speed up by making SMG6 and SML2 numpya arrays from the start 
+        Could speed up by making SMG and SML numpya arrays from the start 
         """
 
         for i,strike in enumerate(tqdm(strike_prices, desc='loading...')):
             for j,M in enumerate(contract_amounts):
                
-                # Calculate revenues for G6
-                SMG6 = (strike - self.data.price_G6) * M
+                # Calculate revenues for G
+                SMG = (strike - self.data.price_G) * M
                 
 
-                # Calculate revenues for L2
-                SML2 = ( self.data.price_L2-strike) * M
+                # Calculate revenues for L
+                SML = ( self.data.price_L-strike) * M
 
                 # Calculate total revenues
-                Scen_revenue_G6 = SMG6.sum(axis=0) + self.data.net_earnings_no_contract_G6
-                Scen_revenue_L2 = SML2.sum(axis=0) + self.data.net_earnings_no_contract_L2
+                Scen_revenue_G = SMG.sum(axis=0) + self.data.net_earnings_no_contract_G
+                Scen_revenue_L = SML.sum(axis=0) + self.data.net_earnings_no_contract_L
 
                 # Calculate CVaR
-                CVaRG6 = calculate_cvar_left(Scen_revenue_G6.values, self.data.alpha)
-                CVaRL2 = calculate_cvar_left(Scen_revenue_L2, self.data.alpha)
+                CVaRG = calculate_cvar_left(Scen_revenue_G.values, self.data.alpha)
+                CVaRL = calculate_cvar_left(Scen_revenue_L, self.data.alpha)
 
                 # Calculate utility using old and new objective functions
                 if self.old_obj_func == True:
-                    UG6 = (Scen_revenue_G6.mean() + self.data.A_G6 * CVaRG6)
-                    UL2 = (Scen_revenue_L2.mean() + self.data.A_L2 * CVaRL2)
+                    UG = (Scen_revenue_G.mean() + self.data.A_G * CVaRG)
+                    UL = (Scen_revenue_L.mean() + self.data.A_L * CVaRL)
+                    #UG = (1/(1+self.data.A_G)) * (Scen_revenue_G.mean() + self.data.A_G * CVaRG)
+                    #UL = (1/(1+self.data.A_L)) * (Scen_revenue_L.mean() + self.data.A_L * CVaRL)
                 else:
-                    UG6 = (1 - self.data.A_G6) * Scen_revenue_G6.mean() + self.data.A_G6 * CVaRG6
-                    UL2 = (1 - self.data.A_L2) * Scen_revenue_L2.mean() + self.data.A_L2 * CVaRL2
+                    UG = (1 - self.data.A_G) * Scen_revenue_G.mean() + self.data.A_G * CVaRG
+                    UL = (1 - self.data.A_L) * Scen_revenue_L.mean() + self.data.A_L * CVaRL
+
+               
 
 
                 # Calculate the Nash product (combined utility)
-                combined_utility = (UG6 - self.data.Zeta_G6 ) * (UL2 - self.data.Zeta_L2) 
+                combined_utility = (UG - self.data.Zeta_G ) * (UL - self.data.Zeta_L) 
                 # Calculate the Nash product (combined utility)
-                combined_utility_log = np.log(np.maximum(UG6 - self.data.Zeta_G6 , 1e-10)) + np.log(np.maximum(UL2 - self.data.Zeta_L2 , 1e-10)) # Avoid log(0) by using a small value
+                combined_utility_log = np.log(np.maximum(UG - self.data.Zeta_G , 1e-10)) + np.log(np.maximum(UL - self.data.Zeta_L , 1e-10)) # Avoid log(0) by using a small value
                 combined_utility_log = np.nan_to_num(combined_utility_log)  # Handle NaN values
                 """
                 if combined_utility_log <0:
-                    log_abs_diff_G6 = np.log(np.maximum(np.abs(UG6 - self.data.Zeta_G6), 1e-10))
-                    log_abs_diff_L2 = np.log(np.maximum(np.abs(UL2 - self.data.Zeta_L2), 1e-10))
+                    log_abs_diff_G = np.log(np.maximum(np.abs(UG - self.data.Zeta_G), 1e-10))
+                    log_abs_diff_L = np.log(np.maximum(np.abs(UL - self.data.Zeta_L), 1e-10))
                     # Sum the logarithms
-                    combined_utility_log = (log_abs_diff_G6 + log_abs_diff_L2)
+                    combined_utility_log = (log_abs_diff_G + log_abs_diff_L)
 
                     if combined_utility_log -combined_utility <1e-6 and strike < self.data.special_case_min_strike:
                         self.data.special_case_min_strike = strike
                     if combined_utility_log - combined_utility <1e-6 and strike > self.data.special_case_max_strike:
                         self.data.special_case_max_strike = strike
                 """
-                utilities_G6[i,j] = UG6
-                utilities_L2[i,j] = UL2
+                utilities_G[i,j] = UG
+                utilities_L[i,j] = UL
                 combined_utilities[i,j] = combined_utility
                 combined_utilities_log[i,j] = combined_utility_log
 
@@ -437,8 +535,8 @@ class ContractNegotiation:
         optimal_amount_log = contract_amounts[max_idx_log[1]]
 
         # Get maximum utilities
-        max_utility_G6 = utilities_G6[max_idx]
-        max_utility_L2 = utilities_L2[max_idx]
+        max_utility_G = utilities_G[max_idx]
+        max_utility_L = utilities_L[max_idx]
         max_combined_utility = combined_utilities[max_idx]
         max_combined_utility_log = combined_utilities_log[max_idx_log]
 
@@ -462,17 +560,17 @@ class ContractNegotiation:
 
         # Include threat points for comparison
         print("\n-------------------   RESULTS Iterative  -------------------")
-        print(f"Threat Point G6: {self.data.Zeta_G6}")
-        print(f"Threat Point L2: {self.data.Zeta_L2}")
-        print(f'Risk Aversion G6: {self.data.A_G6}')
-        print(f'Risk Aversion G6: {self.data.A_L2}')
+        print(f"Threat Point G: {self.data.Zeta_G}")
+        print(f"Threat Point L: {self.data.Zeta_L}")
+        print(f'Risk Aversion G: {self.data.A_G}')
+        print(f'Risk Aversion G: {self.data.A_L}')
 
         print(f"Optimal Strike Price: {optimal_strike_price}")
         print(f"Optimal Strike Price log: {optimal_strike_price_log}")
         print(f"Optimal  Amount: {optimal_amount}")
         print(f"Optimal Amount log: {optimal_amount_log}")
-        print(f"Maximum Utility G6: {max_utility_G6}")
-        print(f"Maximum Utility L2: {max_utility_L2}")
+        print(f"Maximum Utility G: {max_utility_G}")
+        print(f"Maximum Utility L: {max_utility_L}")
 
         print(f"Maximum Combined Utility (Nash Product): {max_combined_utility}")
         #print(f"Maximum Combined Utility Log (Nash Product): {np.exp(combined_utilities_log[max_combined_utility_index_log])}")
@@ -487,9 +585,9 @@ class ContractNegotiation:
             # Plot the utilities and Nash product for different strike prices
             fig, axs = plt.subplots(1, 2, figsize=(15, 6))
 
-            # First subplot: Utilities for G6 and L2
-            axs[0].plot(strike_prices, utilities_G6, label="Utility G6", color="blue")
-            axs[0].plot(strike_prices, utilities_L2, label="Utility L2", color="green")
+            # First subplot: Utilities for G and L
+            axs[0].plot(strike_prices, utilities_G, label="Utility G", color="blue")
+            axs[0].plot(strike_prices, utilities_L, label="Utility L", color="green")
             axs[0].axvline(optimal_strike_price, color="red", linestyle="--", label=f"Optimal Strike Price: {optimal_strike_price:.5f}")
             axs[0].axvline(optimal_strike_price, color="red", linestyle="--", label=f"Optimal Log Strike Price: {optimal_strike_price_log:.5f}")
             axs[0].set_xlabel("Strike Price")
@@ -511,12 +609,12 @@ class ContractNegotiation:
 
             """
             # Second subplot: Nash Product and Log Nash Product
-            axs[2].plot(utilities_G6, utilities_L2,  color="orange", linestyle="-")
-            axs[2].set_xlabel("Utility G6")
-            axs[2].set_ylabel("Utility L2")
-            axs[2].set_title("Utility G6 vs Utility L2")
+            axs[2].plot(utilities_G, utilities_L,  color="orange", linestyle="-")
+            axs[2].set_xlabel("Utility G")
+            axs[2].set_ylabel("Utility L")
+            axs[2].set_title("Utility G vs Utility L")
             axs[2].grid()
-            fig.suptitle(f"Utilities and Nash Product for Different Strike Prices with with Risk AG{self.data.A_G6} and Risk AL{self.data.A_L2}")
+            fig.suptitle(f"Utilities and Nash Product for Different Strike Prices with with Risk AG{self.data.A_G} and Risk AL{self.data.A_L}")
             """
             # Adjust layout and show the plot
             plt.tight_layout()
@@ -528,13 +626,13 @@ class ContractNegotiation:
             else:
                 plt.show()
 
-    def batch_manual_optimization(self, A_G6_values, A_L2_values, strike_min=None, strike_max=None, filename=None):
+    def batch_manual_optimization(self, A_G_values, A_L_values, strike_min=None, strike_max=None, filename=None):
         """
         Perform manual optimization for multiple risk aversion values and plot combined results.
         
         Args:
-            A_G6_values: Array of GenCo risk aversion values
-            A_L2_values: Array of LSE risk aversion values
+            A_G_values: Array of GenCo risk aversion values
+            A_L_values: Array of LSE risk aversion values
             strike_min: Minimum strike price (optional)
             strike_max: Maximum strike price (optional)
             filename: Optional filename to save the plot
@@ -552,52 +650,52 @@ class ContractNegotiation:
         strike_prices = np.linspace(self.data.strikeprice_min, self.data.strikeprice_max, 200)
 
         # Create a color map for AG values - using tab20 for more distinct colors
-        base_colors = plt.cm.tab20(np.linspace(0, 1, len(A_G6_values)))
+        base_colors = plt.cm.tab20(np.linspace(0, 1, len(A_G_values)))
         # Number of gradient steps for each AL value
-        gradient_steps = len(A_L2_values)
+        gradient_steps = len(A_L_values)
 
-        for ag_idx, a_g6 in enumerate(tqdm(A_G6_values, desc='loading batch...')):
+        for ag_idx, a_G in enumerate(tqdm(A_G_values, desc='loading batch...')):
             base_color = base_colors[ag_idx]
             # Create gradient colors for this AG value - using a wider range of alpha values
             alpha_values = np.linspace(0.5, 1.0, gradient_steps)  # Increased minimum alpha for better visibility
             
-            for al_idx, a_l2 in enumerate(A_L2_values):
-                utilities_G6 = []
-                utilities_L2 = []
+            for al_idx, a_L in enumerate(A_L_values):
+                utilities_G = []
+                utilities_L = []
                 combined_utilities_log = []
                 
                 # Update risk aversion values
-                A_G6 = a_g6
-                A_L2 = a_l2
+                A_G = a_G
+                A_L = a_L
                 
                 for strike in tqdm(strike_prices, desc='loading...'):
-                    # Calculate revenues for G6
-                    SMG6 = (strike - self.data.price_G6) * self.results.contract_amount
+                    # Calculate revenues for G
+                    SMG = (strike - self.data.price_G) * self.results.contract_amount
 
-                    # Calculate revenues for L2
-                    SML2 = ( self.data.price_L2-strike) * self.results.contract_amount
+                    # Calculate revenues for L
+                    SML = ( self.data.price_L-strike) * self.results.contract_amount
 
                     # Calculate total revenues
-                    Scen_revenue_G6 = SMG6.sum(axis=0) + self.data.net_earnings_no_contract_G6
-                    Scen_revenue_L2 = SML2.sum(axis=0) + self.data.net_earnings_no_contract_L2
+                    Scen_revenue_G = SMG.sum(axis=0) + self.data.net_earnings_no_contract_G
+                    Scen_revenue_L = SML.sum(axis=0) + self.data.net_earnings_no_contract_L
 
                     # Calculate CVaR
-                    CVaRG6 = calculate_cvar_left(Scen_revenue_G6.values, self.data.alpha)
-                    CVaRL2 = calculate_cvar_left(Scen_revenue_L2.values, self.data.alpha)
+                    CVaRG = calculate_cvar_left(Scen_revenue_G.values, self.data.alpha)
+                    CVaRL = calculate_cvar_left(Scen_revenue_L.values, self.data.alpha)
 
-                    # Calculate utility for G6
+                    # Calculate utility for G
                     if self.old_obj_func == True:
-                        UG6 = (Scen_revenue_G6.mean() + A_G6 * CVaRG6)
-                        UL2 = (Scen_revenue_L2.mean() + A_L2 * CVaRL2)
+                        UG = (Scen_revenue_G.mean() + A_G * CVaRG)
+                        UL = (Scen_revenue_L.mean() + A_L * CVaRL)
                     else:
-                        UG6 = (1 - self.data.A_G6) * Scen_revenue_G6.mean() + A_G6 * CVaRG6
-                        UL2 = (1 - self.data.A_L2) * Scen_revenue_L2.mean() + A_L2 * CVaRL2
+                        UG = (1 - self.data.A_G) * Scen_revenue_G.mean() + A_G * CVaRG
+                        UL = (1 - self.data.A_L) * Scen_revenue_L.mean() + A_L * CVaRL
 
-                    utilities_G6.append(UG6)
-                    utilities_L2.append(UL2)
+                    utilities_G.append(UG)
+                    utilities_L.append(UL)
 
                     # Calculate the Nash product (combined utility)
-                    combined_utility_log = np.log(np.maximum(UG6 - self.data.Zeta_G6, 1e-10)) + np.log(np.maximum(UL2 - self.data.Zeta_L2, 1e-10))
+                    combined_utility_log = np.log(np.maximum(UG - self.data.Zeta_G, 1e-10)) + np.log(np.maximum(UL - self.data.Zeta_L, 1e-10))
                     combined_utility_log = np.nan_to_num(combined_utility_log)  # Handle NaN values
                     combined_utility_log = np.maximum(combined_utility_log, 0)  # Ensure non-negative values    
                     combined_utilities_log.append(combined_utility_log)
@@ -606,7 +704,7 @@ class ContractNegotiation:
                 current_color = base_color.copy()
                 current_color[3] = alpha_values[al_idx]  # Modify alpha for gradient effect
                 ax.plot(strike_prices, combined_utilities_log, 
-                    label=f'AG={a_g6:.1f}, AL={a_l2:.1f}',
+                    label=f'AG={a_G:.1f}, AL={a_L:.1f}',
                     color=current_color,
                     linewidth=2)  # Increased line width for better visibility
 
@@ -649,13 +747,15 @@ class ContractNegotiation:
         # Get the optimal values using SciPy optimization
         S_opt, M_opt, Nash_Product = optimize_nash_product(
             old_obj_func=self.old_obj_func,
-            price_data=self.data.price_true,
-            A_G6=self.data.A_G6,
-            A_L2=self.data.A_L2,
-            net_earnings_no_contract_G6=self.data.net_earnings_no_contract_G6,
-            net_earnings_no_contract_L2=self.data.net_earnings_no_contract_L2,
-            Zeta_G6=self.data.Zeta_G6,
-            Zeta_L2=self.data.Zeta_L2,
+            hours_in_year=self.data.hours_in_year,
+            price_G = self.data.price_G,
+            price_L = self.data.price_L,
+            A_G=self.data.A_G,
+            A_L=self.data.A_L,
+            net_earnings_no_contract_G=self.data.net_earnings_no_contract_priceG_G,
+            net_earnings_no_contract_L=self.data.net_earnings_no_contract_priceL_L,
+            Zeta_G=self.data.Zeta_G,
+            Zeta_L=self.data.Zeta_L,
             strikeprice_min=self.data.strikeprice_min,
             strikeprice_max=self.data.strikeprice_max,
             contract_amount_min=self.data.contract_amount_min,
@@ -668,66 +768,82 @@ class ContractNegotiation:
         
         # Store results in the same format as Gurobi optimization
         self.scipy_results.strike_price = S_opt
-        self.scipy_results.contract_amount = M_opt
+        self.scipy_results.contract_amount = M_opt # Convert to GWh/year
+        self.scipy_results.strike_price_hour = S_opt / self.data.hours_in_year * 1000
+        self.scipy_results.contract_amount_hour = M_opt /self.data.hours_in_year * 1000  # Convert to GWh/year
         self.scipy_results.objective_value = np.log(Nash_Product)  # Convert to log form to match Gurobi
         self.scipy_results.Nash_Product = Nash_Product
         
+        #True Earnings with true probablity distribution
         # Calculate utilities with optimal values
-        EuG6 = self.data.net_earnings_no_contract_G6
-        SMG6 = (S_opt - self.data.price_true) * M_opt
-        
-        EuL2 = self.data.net_earnings_no_contract_L2
-        SML2 = (self.data.price_true - S_opt) * M_opt
-        
-        # Calculate CVaR and utilities
-        self.scipy_results.CVaR_G6= calculate_cvar_left(EuG6 + SMG6.sum(axis=0), self.data.alpha)
-        self.scipy_results.CVaR_L2 = calculate_cvar_left(EuL2 + SML2.sum(axis=0), self.data.alpha)
+        EuG = self.data.net_earnings_no_contract_priceG_G
 
-        if self.old_obj_func == True:
-            self.scipy_results.utility_G6 = (EuG6 + SMG6.sum(axis=0)).mean() + self.data.A_G6 * self.scipy_results.CVaR_G6
-            self.scipy_results.utility_L2 = (EuL2 + SML2.sum(axis=0)).mean() + self.data.A_L2 * self.scipy_results.CVaR_L2
-        else:
-            self.scipy_results.utility_G6 = (1-self.data.A_G6) * (EuG6 + SMG6.sum(axis=0)).mean() + self.data.A_G6 * self.scipy_results.CVaR_G6
-            self.scipy_results.utility_L2 = (1-self.data.A_L2) * (EuL2 + SML2.sum(axis=0)).mean() + self.data.A_L2 * self.scipy_results.CVaR_L2
+        SMG = ((self.scipy_results.strike_price - self.data.price_G) * self.scipy_results.contract_amount).sum(axis=0)  # Sum across time periods for each scenario
 
-      
-        return {
-            'strike_price': S_opt,
-            'contract_amount': M_opt,
-            'nash_product': Nash_Product,
-            'utility_G6':  self.scipy_results.utility_G6,
-            'utility_L2':   self.scipy_results.utility_L2 
-        }
+        # Calculate CVaR for results G 
+        self.scipy_results.CVaRG = calculate_cvar_left(EuG + SMG, self.data.alpha)
 
-    def scipy_display_results(self):
-        """"""
+        # Calculate revenues for L
+        EuL = self.data.net_earnings_no_contract_priceL_L
+        SML = ((self.data.price_L - self.scipy_results.strike_price) * self.scipy_results.contract_amount).sum(axis=0)  # Sum across time periods for each scenario
+
+        # Calculate CVaR for L
+        self.scipy_results.CVaRL = calculate_cvar_left(EuL + SML, self.data.alpha)
+
+
+        self.scipy_results.utility_G = (1-self.data.A_G) * (EuG + SMG).mean() + self.data.A_G * self.scipy_results.CVaRG
+        self.scipy_results.utility_L = (1-self.data.A_L) * (EuL + SML).mean() + self.data.A_L * self.scipy_results.CVaRL
+           
+
+        self.scipy_results.Nash_Product = ((self.scipy_results.utility_G - self.data.Zeta_G) * (self.scipy_results.utility_L - self.data.Zeta_L))
+        # Save accumulated revenues
+        #re calcuate 
+        self.scipy_results.accumulated_revenue_True_G = EuG + SMG.sum(axis=0)
+        self.scipy_results.accumulated_revenue_True_L = EuL + SML.sum(axis=0)
+
+        # Results with biased distribution 
+
         print("\n-------------------   RESULTS SCIPY  -------------------")
         print(f"Optimal Strike Price: {  self.scipy_results.strike_price}")
         print(f"Optimal Contract Amount: {  self.scipy_results.contract_amount}")
         print(f"Nash Product Value: {  self.scipy_results.objective_value}")
-        print(f"Utility G6: {  self.scipy_results.utility_G6}")
-        print(f"Utility L2: {  self.scipy_results.utility_L2}")
+        print(f"Utility G: {  self.scipy_results.utility_G}")
+        print(f"Utility L: {  self.scipy_results.utility_L}")
         print("SciPy optimization complete.")
-        """"""
+
+        return {
+            'strike_price': S_opt,
+            'contract_amount': M_opt,
+            'nash_product': Nash_Product,
+            'utility_G':  self.scipy_results.utility_G,
+            'utility_L':   self.scipy_results.utility_L 
+        }
+
+    def scipy_display_results(self):
+      
         # Compare results
+        print("\n-------------------  THREAT POINTS --------------------")
+        print(f"Threat Point G: {self.data.Zeta_G}")
+        print(f"Threat Point L: {self.data.Zeta_L}")
+
         print("\n-------------------   OPTIMIZATION COMPARISON  -------------------")
         print("Parameter       |    Gurobi    |    SciPy    |    Difference")
         print("-" * 60)
-        print(f"Strike Price   | {self.results.strike_price:11.4f} | {  self.scipy_results.strike_price:10.4f} | {(self.results.strike_price -   self.scipy_results.strike_price):10.4f}")
-        print(f"Contract Amt   | {self.results.contract_amount:11.4f} | {  self.scipy_results.contract_amount:10.4f} | {(self.results.contract_amount -   self.scipy_results.contract_amount):10.4f}")
-        print(f"Nash Product   | {self.results.Nash_Product:11.4f} | {  self.scipy_results.Nash_Product:10.4f} | {(self.results.Nash_Product -   self.scipy_results.Nash_Product):10.4f}")
-        print(f"Utility G6     | {self.results.utility_G6:11.4f} | {  self.scipy_results.utility_G6:10.4f} | {(self.results.utility_G6 -   self.scipy_results.utility_G6):10.4f}")
-        print(f"Utility L2     | {self.results.utility_L2:11.4f} | {  self.scipy_results.utility_L2:10.4f} | {(self.results.utility_L2 -   self.scipy_results.utility_L2):10.4f}")
-
-    def plot_threat_points(self, A_G6_values, A_L2_values, filename=None):
+        print(f"Strike Price   | {self.results.strike_price_hour:2f} | {  self.scipy_results.strike_price_hour:10.4f} | {(self.results.strike_price -   self.scipy_results.strike_price):10.4f}")
+        print(f"Contract Amt   | {self.results.contract_amount_hour:2f} | {  self.scipy_results.contract_amount_hour:10.10f} | {(self.results.contract_amount_hour -   self.scipy_results.contract_amount_hour):10.10f}")
+        print(f"Nash Product   | {self.results.Nash_Product:2f} | {  self.scipy_results.Nash_Product:10.4f} | {(self.results.Nash_Product -   self.scipy_results.Nash_Product):10.4f}")
+        print(f"Utility G     | {self.results.utility_G:2f} | {  self.scipy_results.utility_G:10.1f} | {(self.results.utility_G -   self.scipy_results.utility_G):10.4f}")
+        print(f"Utility L     | {self.results.utility_L:2f} | {  self.scipy_results.utility_L:10.1f} | {(self.results.utility_L -   self.scipy_results.utility_L):10.4f}")
+        print("")
+    def plot_threat_points(self, A_G_values, A_L_values, filename=None):
         """
         Plot how threat points (Zeta) change with different risk aversion values.
         
         Parameters
         ----------
-        A_G6_values : array-like
+        A_G_values : array-like
             Array of GenCo risk aversion values to test
-        A_L2_values : array-like
+        A_L_values : array-like
             Array of LSE risk aversion values to test
         filename : str, optional
             If provided, saves the plot to this filename
@@ -736,47 +852,47 @@ class ContractNegotiation:
 
         A_values_old = np.round(np.linspace(0, 2, 15), 2)
         A_values_new = np.round(np.linspace(0, 1, 15), 2)
-        zeta_G6_old = np.zeros_like(A_values_old)
-        zeta_L2_old = np.zeros_like(A_values_new)
+        zeta_G_old = np.zeros_like(A_values_old)
+        zeta_L_old = np.zeros_like(A_values_new)
 
-        zeta_G6_new = np.zeros_like(A_values_old)
-        zeta_L2_new = np.zeros_like(A_values_new)
+        zeta_G_new = np.zeros_like(A_values_old)
+        zeta_L_new = np.zeros_like(A_values_new)
 
         # Calculate Zeta values for each combination of risk aversion parameters
-        CVaR_no_contract_G6 = calculate_cvar_left(self.data.net_earnings_no_contract_G6, self.data.alpha)
-        CVaR_no_contract_L2 = calculate_cvar_left(self.data.net_earnings_no_contract_L2, self.data.alpha)
+        CVaR_no_contract_G = calculate_cvar_left(self.data.net_earnings_no_contract_true_G, self.data.alpha)
+        CVaR_no_contract_L = calculate_cvar_left(self.data.net_earnings_no_contract_true_L, self.data.alpha)
 
         
         for i  in range(len(A_values_old)):
 
-            zeta_G6_old[i] = self.data.net_earnings_no_contract_G6.mean() + A_values_old[i] * CVaR_no_contract_G6
-            zeta_G6_new[i] = (1-A_values_new[i]) * self.data.net_earnings_no_contract_G6.mean() +  A_values_new[i] * CVaR_no_contract_G6
+            zeta_G_old[i] = self.data.net_earnings_no_contract_true_G.mean() + A_values_old[i] * CVaR_no_contract_G
+            zeta_G_new[i] = (1-A_values_new[i]) * self.data.net_earnings_no_contract_true_G.mean() +  A_values_new[i] * CVaR_no_contract_G
 
-            zeta_L2_old[i] = self.data.net_earnings_no_contract_L2.mean() + A_values_old[i] * CVaR_no_contract_L2
-            zeta_L2_new[i] = (1-A_values_new[i]) * self.data.net_earnings_no_contract_L2.mean() +  A_values_new[i] * CVaR_no_contract_L2
+            zeta_L_old[i] = self.data.net_earnings_no_contract_true_L.mean() + A_values_old[i] * CVaR_no_contract_L
+            zeta_L_new[i] = (1-A_values_new[i]) * self.data.net_earnings_no_contract_true_L.mean() +  A_values_new[i] * CVaR_no_contract_L
 
         # Create figure with two subplots side by side
         fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-        # Plot G6 Revenue Histogram
+        # Plot G Revenue Histogram
         ax1 = axes[0]
         ax2 = axes[1]
-        # First subplot for Zeta G6
+        # First subplot for Zeta G
 
-        ax1.plot(A_values_old, zeta_G6_old,marker='o', color='orange')
-        ax1.plot(A_values_new, zeta_G6_new,marker='x', color='blue')
-        ax1.set_xlabel('Risk Aversion G6')
-        ax1.set_ylabel('Threat Point G6')
+        ax1.plot(A_values_old, zeta_G_old,marker='o', color='orange')
+        ax1.plot(A_values_new, zeta_G_new,marker='x', color='blue')
+        ax1.set_xlabel('Risk Aversion G')
+        ax1.set_ylabel('Threat Point G')
         ax1.legend(['Old Objective', 'New Objective'])
-        ax1.set_title('Threat Point G6 vs Risk Aversion Parameters')
+        ax1.set_title('Threat Point G vs Risk Aversion Parameters')
 
-        # Second subplot for Zeta L2
+        # Second subplot for Zeta L
 
-        ax2.plot(A_values_old, zeta_L2_old, marker='o', color='orange')
-        ax2.plot(A_values_new, zeta_L2_new, marker='x', color='blue')
-        ax2.set_xlabel('Risk Aversion L2')
-        ax2.set_ylabel('Threat point L2')
+        ax2.plot(A_values_old, zeta_L_old, marker='o', color='orange')
+        ax2.plot(A_values_new, zeta_L_new, marker='x', color='blue')
+        ax2.set_xlabel('Risk Aversion L')
+        ax2.set_ylabel('Threat point L')
         ax2.legend(['Old Objective', 'New Objective'])
-        ax2.set_title('Threat Point L2 vs Risk Aversion Parameters')
+        ax2.set_title('Threat Point L vs Risk Aversion Parameters')
 
         plt.tight_layout()
 

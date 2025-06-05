@@ -1,6 +1,6 @@
 """
-Data management module for power system contract negotiation.
-Handles data loading, scenario generation, and input data structures.
+Data management module for loading data for monte carlo analysis - Not applicable with OPF model.
+OLd datam management is kept for reference and used for OPF data.
 """
 import numpy as np
 import pandas as pd
@@ -11,7 +11,7 @@ from Forecasting import MonteCarloConfig
 
 @dataclass
 class LHLoadConfig:
-    horizon_hours: int                    # e.g. 24 * DAYS
+    time_horizon: int                    # e.g. 24 * DAYS
     daily_means: np.ndarray               # shape (num_days,)
     daily_std: float                      # σ of daily mean distribution
     hourly_weights: np.ndarray            # length-24 vector, mean≈1
@@ -24,9 +24,7 @@ from scipy.stats import qmc, norm
 
 
 def generate_scenarios(mc_cfg: MonteCarloConfig,
-                       lh_cfg: LHLoadConfig,
-                       all_nodes: bool = False,
-                       num_total_loads: int = 3) -> Dict[str, np.ndarray]:
+                       lh_cfg: LHLoadConfig):
     """
     Latin-Hypercube-based load scenario generator with auto-numbered L-nodes.
 
@@ -49,9 +47,7 @@ def generate_scenarios(mc_cfg: MonteCarloConfig,
     num_L_scen = mc_cfg.n_simulations
 
     num_hours = 24
-    if lh_cfg.horizon_hours % num_hours != 0:
-        raise ValueError("horizon_hours must be a multiple of 24")
-    num_days = lh_cfg.horizon_hours // num_hours
+    num_days = lh_cfg.time_horizon // num_hours
     daily_mean = lh_cfg.daily_means[:num_days]
     load_std = lh_cfg.daily_std
     hw = lh_cfg.hourly_weights / lh_cfg.hourly_weights.mean()
@@ -97,15 +93,6 @@ def generate_scenarios(mc_cfg: MonteCarloConfig,
             repeated = np.tile(profile, num_days)[:, None]        # (T, 1)
             load_dict[name] = np.repeat(repeated, num_L_scen, axis=1)  # (T, S)
 
-    # Auto-number stochastic loads
-    for i in range(1, num_total_loads + 1):         # L1, L, ..., LN
-        lname = f"L{i}"
-        if lname in load_dict:
-            continue                                # skip fixed ones
-        if not all_nodes and lname != "L":
-            continue                                # only allow L if all_nodes=False
-        load_dict[lname] = hourly_loads.copy()      # same profile to all dynamic loads
-
     return load_dict
 
 class InputData:
@@ -114,25 +101,14 @@ class InputData:
     """
     def __init__(
         self, 
-        GENERATORS: list, 
         LOADS: list, 
-        NODES: list,
         TIME: list,
-        SCENARIOS_L: list,
+        NUM_SCENARIOS: int,
+        SCENARIOS: list,
         PROB: float,
-        generator_cost_fixed: dict, 
-        generator_cost_a: dict,
-        generator_cost_b: dict,   
-        generator_capacity: dict, 
         generator_contract_capacity: int,
-        load_capacity: dict,
-        mapping_buses: dict,
-        mapping_generators: dict,
-        mapping_loads: dict,
-        branch_capacity: pd.DataFrame,
-        bus_susceptance: pd.DataFrame,
-        slack_bus: str,
-        system_data: dict,
+        load_scenarios: np.ndarray,
+
         retail_price: float,
         strikeprice_min: float,
         strikeprice_max: float,
@@ -145,34 +121,19 @@ class InputData:
         alpha: float
     ):
         # Basic system parameters
-        self.GENERATORS = GENERATORS
         self.LOADS = LOADS
-        self.NODES = NODES
         self.TIME = TIME
-        self.SCENARIOS_L = SCENARIOS_L
+        self.NUM_SCENARIOS = NUM_SCENARIOS
+        self.SCENARIOS_L = SCENARIOS
         self.PROB = PROB
         
         # Generator parameters
-        self.generator_cost_fixed = generator_cost_fixed
-        self.generator_cost_a = generator_cost_a
-        self.generator_cost_b = generator_cost_b
-        self.generator_capacity = generator_capacity
+   
         self.generator_contract_capacity = generator_contract_capacity
         
         # Load parameters
-        self.load_capacity = load_capacity
-        self.num_L_scen = len(SCENARIOS_L)
-        
-        # Network topology
-        self.mapping_buses = mapping_buses
-        self.mapping_generators = mapping_generators
-        self.mapping_loads = mapping_loads
-        self.branch_capacity = branch_capacity
-        self.bus_susceptance = bus_susceptance
-        self.slack_bus = slack_bus
-        
-        # System data
-        self.system_data = system_data
+        self.load_scenarios = load_scenarios
+
         
         # Contract parameters
         self.retail_price = retail_price
@@ -188,7 +149,7 @@ class InputData:
         self.K_G = K_G
         self.alpha = alpha
 
-def load_data(time_horizon: int, scen: int, A_G: float, A_L: float):
+def load_data(time_horizon: int, NUM_SCENARIOS: int, A_G: float, A_L: float):
     """
     Load system data and create initial parameters.
     
@@ -202,77 +163,11 @@ def load_data(time_horizon: int, scen: int, A_G: float, A_L: float):
     Returns:
         tuple: System parameters and data
     """
-    
-    # System base parameters
-    So = 100  # Base Apparent Power
-    Vo = 10.  # Base Voltage
-    pi_b = 0.05  # Voltage penalty
-    System_data = {'So': So, 'Vo': Vo, 'pi_b': pi_b}
-
-    # System components
-    GENERATORS = ['G1', 'G2', 'G3', 'G4', 'G5', 'G6']
-    LOADS = ['L1', 'L2', 'L3']
-    NODES = ['N1', 'N2', 'N3', 'N4', 'N5']
-    
+    LOADS = ['L2']
     # Time parameters
     TIME = range(0, time_horizon) # yearas
-    SCENARIOS_L = range(scen)
-    PROB = 1/len(SCENARIOS_L)
-
-    # Network topology
-    mapping_buses = pd.DataFrame({
-        'N1': [0, 1, 1, 1, 1],
-        'N2': [1, 0, 1, 1, 1],
-        'N3': [1, 1, 0, 1, 1],
-        'N4': [1, 1, 1, 0, 1],
-        'N5': [1, 1, 1, 1, 0]
-    }, index=NODES)
-
-    # Branch data
-    Line_reactance = np.array([0.0281, 0.0304, 0.0064, 0.0108, 0.0297, 0.0297])
-    Line_from = np.array([1, 1, 1, 2, 3, 4])
-    Line_to = np.array([2, 4, 5, 3, 4, 5])
-    Linecap = np.array([250, 150, 400, 350, 240, 240])
-
-    # Initialize matrices
-    branch_capacity = np.zeros((len(NODES), len(NODES)))
-    bus_reactance = np.zeros((len(NODES), len(NODES)))
-
-    # Fill matrices
-    for i in range(len(Line_from)):
-        node1 = Line_from[i] - 1
-        node2 = Line_to[i] - 1
-        cap = Linecap[i]
-        reactance = Line_reactance[i]
-        
-        # Branch capacity
-        branch_capacity[node1, node2] = cap
-        branch_capacity[node2, node1] = cap
-        
-        # Bus reactance
-        susceptance = 1 / reactance
-        bus_reactance[node1, node1] += susceptance
-        bus_reactance[node2, node2] += susceptance
-        bus_reactance[node1, node2] -= susceptance
-        bus_reactance[node2, node1] -= susceptance
-
-    branch_capacity_df = pd.DataFrame(branch_capacity, index=NODES, columns=NODES)
-    bus_reactance_df = pd.DataFrame(bus_reactance, index=NODES, columns=NODES)
-
-    # Generator data
-    fixed_Cost = {'G1': 1600, 'G2': 1200, 'G3': 8500, 'G4': 1000, 'G5': 5400, 'G6': 0}
-    generator_cost_a = {'G1': 14, 'G2': 15, 'G3': 25, 'G4': 30, 'G5': 10, 'G6': 10}
-    generator_cost_b = {'G1': 0.005, 'G2': 0.006, 'G3': 0.01, 'G4': 0.012, 'G5': 0.007, 'G6': 0.005}
-    generator_capacity = {'G1': 110, 'G2': 110, 'G3': 520, 'G4': 200, 'G5': 600, 'G6': 300}
-    generator_contract_capacity = 100 # 300 if OPF 
-    
-    mapping_generators = pd.DataFrame({
-        'N1': [1, 1, 0, 0, 0, 0],
-        'N2': [0, 0, 0, 0, 0, 0],
-        'N3': [0, 0, 1, 0, 0, 1],
-        'N4': [0, 0, 0, 1, 0, 0],
-        'N5': [0, 0, 0, 0, 1, 0]
-    }, index=GENERATORS)
+    SCENARIOS = range(NUM_SCENARIOS)
+    PROB = 1/len(SCENARIOS)
 
     # Load data
     daily_load_mean = np.array([
@@ -281,8 +176,11 @@ def load_data(time_horizon: int, scen: int, A_G: float, A_L: float):
         341.99, 312.55, 351.49, 349.64, 363.59, 367.08, 336.56, 300.43, 
         285.71, 329.89, 335.36, 336.34, 337.69, 336.93
     ])
+    load_mean = np.mean(daily_load_mean)
 
     load_std = np.sqrt(834.5748)
+
+    load_scenarios = np.random.normal(load_mean, load_std, size=(time_horizon, NUM_SCENARIOS)) * 8760 / 1000 # Scale to yearly load convert to GWh
     
     # Generate load scenarios
     L1_3=np.array([
@@ -303,10 +201,11 @@ def load_data(time_horizon: int, scen: int, A_G: float, A_L: float):
     hourly_weight_factors /= hourly_weight_factors.mean() # This is complete arbitrary valyes taken
 
     # ---------- Monte-Carlo *meta* config (shared by all stochastic sources)
-    mc_cfg = MonteCarloConfig(n_simulations=scen, random_seed=42)
+    """
+    mc_cfg = MonteCarloConfig(n_simulations=NUM_SCENARIOS, random_seed=42)
 
     lh_cfg = LHLoadConfig(
-        horizon_hours = hours * days,
+        time_horizon = time_horizon,
         daily_means   =daily_load_mean,     # shape (30,)
         daily_std     = load_std,
         hourly_weights= hourly_weight_factors,     # shape (24,)
@@ -316,22 +215,15 @@ def load_data(time_horizon: int, scen: int, A_G: float, A_L: float):
         }
     )
 
-    load_capacity = generate_scenarios(mc_cfg, lh_cfg, all_nodes=True, num_total_loads=3)
+    load_scenarios   = generate_scenarios(mc_cfg, lh_cfg)
+    """
     
-
-    
-    mapping_loads = pd.DataFrame({
-        'N1': [0, 0, 0],
-        'N2': [1, 0, 0],
-        'N3': [0, 1, 0],
-        'N4': [0, 0, 1],
-        'N5': [0, 0, 0]
-    }, index=LOADS)
+    generator_contract_capacity = 100 # MW
 
     # Contract parameters
-    retail_price = 25
-    strikeprice_min = 15
-    strikeprice_max = 25
+    retail_price = 25 # EUR/MWh
+    strikeprice_min = 50 # EUR/MWh
+    strikeprice_max = 110 # EUR/MWh
     contract_amount_min = 0
     contract_amount_max = generator_contract_capacity * 2
     
@@ -342,11 +234,10 @@ def load_data(time_horizon: int, scen: int, A_G: float, A_L: float):
     K_G = 0
     alpha = 0.95
 
-    return (
-        GENERATORS, LOADS, NODES, TIME, SCENARIOS_L, PROB,
-        fixed_Cost, generator_cost_a, generator_cost_b, generator_capacity,generator_contract_capacity,
-        load_capacity, mapping_buses, mapping_generators, mapping_loads,
-        branch_capacity_df, bus_reactance_df, System_data,retail_price,
+    return ( 
+        LOADS, TIME, SCENARIOS, PROB,
+        generator_contract_capacity,
+        load_scenarios, retail_price,
         strikeprice_min, strikeprice_min, strikeprice_max,
         contract_amount_min, contract_amount_max,
         A_L, A_G, K_L, K_G, alpha

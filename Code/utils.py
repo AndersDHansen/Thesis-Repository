@@ -1,6 +1,7 @@
 """
 Utility functions and classes for power system contract negotiation.
 """
+from abc import ABC, abstractmethod
 from typing import Dict, Any, Union, List
 import numpy as np
 import pandas as pd
@@ -21,6 +22,53 @@ class Expando:
     setting, useful for storing variables, constraints, and results.
     """
     pass
+
+class PriceProductionProvider(ABC):
+    """Return the arrays the bargaining model needs, no matter the backend."""
+
+    @abstractmethod
+    def price_matrix(self, node: str) -> pd.DataFrame: ...
+    @abstractmethod
+    def production_matrix(self, generator: str) -> pd.DataFrame: ...
+    @property
+    @abstractmethod
+    def probability(self) -> float: ...
+
+
+class OPFProvider(PriceProductionProvider):
+    def __init__(self, opf_results,prob):
+        self._r = opf_results            # OptimalPowerFlow.results
+        self._rPROB = prob
+
+    def price_matrix(self, node: str) -> np.ndarray:
+        return build_dataframe(self._r.price[node], 'price').values
+
+    def production_matrix(self, generator: str) -> np.ndarray:
+        return build_dataframe(
+            self._r.generator_production[generator], 'gen_prod'
+        ).values
+
+    @property
+    def probability(self) -> float:
+        return self._rPROB
+
+class ForecastProvider(PriceProductionProvider):
+    def __init__(self, price_df: pd.DataFrame, prod_df: pd.DataFrame, CR_df: pd.DataFrame, prob: float):
+        self._price = price_df          # shape (T, S)
+        self._prod  = prod_df           # shape (T, S)
+        self._CR    = CR_df                # shape (T, S)
+        self._prob  = prob              # usually 1/S
+
+    def price_matrix(self) -> np.ndarray:
+        return self._price
+    def production_matrix(self) -> np.ndarray:
+        return self._prod
+    def capture_rate_matrix(self) -> np.ndarray:
+        return self._CR
+
+    @property
+    def probability(self) -> float:
+        return self._prob
 
 def build_dataframe(data: Dict[tuple, Any], input_name: str) -> pd.DataFrame:
     """Convert dictionary data to a formatted pandas DataFrame.
@@ -204,13 +252,15 @@ def analyze_price_distribution(
 
 def optimize_nash_product(
     old_obj_func:bool,
-    price_data: np.ndarray,
-    A_G6: float,
-    A_L2: float,
-    net_earnings_no_contract_G6: np.ndarray,
-    net_earnings_no_contract_L2: np.ndarray,
-    Zeta_G6: float,
-    Zeta_L2: float,
+    hours_in_year: np.ndarray,
+    price_G: np.ndarray,
+    price_L: np.ndarray,
+    A_G: float,
+    A_L: float,
+    net_earnings_no_contract_G: np.ndarray,
+    net_earnings_no_contract_L: np.ndarray,
+    Zeta_G: float,
+    Zeta_L: float,
     strikeprice_min: float,
     strikeprice_max: float,
     contract_amount_min: float,
@@ -240,85 +290,103 @@ def optimize_nash_product(
     """
     def calculate_utilities(S: float, M: float) -> tuple[float, float, float]:
         """Calculate utilities and Nash product for given strike price and contract amount."""
-        # Calculate revenues for G6 with contract
-        SMG6 = (S - price_data) * M
-        Scen_revenue_G6 = np.sum(SMG6, axis=0) + net_earnings_no_contract_G6
+
         
-        # Calculate revenues for L2 with contract
-        SML2 = (price_data - S) * M
-        Scen_revenue_L2 = np.sum(SML2, axis=0) + net_earnings_no_contract_L2
+        # Calculate revenues for G with contract
+        rev_contract = M  * (S  - price_G)
+        rev_contract_total = rev_contract.sum(axis=0)
+        Expected = net_earnings_no_contract_G 
+        earnings = Expected + rev_contract_total
+        CVaR_G = calculate_cvar_left(earnings, alpha)
+
+        UG = (1-A_G)*earnings.mean() + A_G * CVaR_G
+        
+        rev_contract = M  * ( price_L - S )
+        rev_contract_total = rev_contract.sum(axis=0)
+        Expected = net_earnings_no_contract_L
+        earnings = Expected + rev_contract_total
+        CVaR_L = calculate_cvar_left(earnings, alpha)
+        
+       
+        UL = (1-A_L)*earnings.mean() + A_L * CVaR_L
         
         # Calculate CVaR for both parties
-        CVaRG6 = calculate_cvar_left(Scen_revenue_G6, alpha)
-        CVaRL2 = calculate_cvar_left(Scen_revenue_L2, alpha)
         
         # Calculate utilities
+        """
         if old_obj_func == True:
-            if A_G6 == 0 and A_L2 != 0:
-                UG6 = np.mean(Scen_revenue_G6)
-                UL2 = np.mean(Scen_revenue_L2) + A_L2 * CVaRL2
-            elif A_G6 != 0 and A_L2 == 0:
-                UG6 = np.mean(Scen_revenue_G6) + A_G6 * CVaRG6
-                UL2 = np.mean(Scen_revenue_L2)
-            elif A_G6 == 0 and A_L2 == 0:
-                UG6 = np.mean(Scen_revenue_G6)
-                UL2 = np.mean(Scen_revenue_L2)
+            if A_G == 0 and A_L != 0:
+                UG = np.mean(earnings_G)
+                UL = np.mean(earnings_L) + A_L * CVaRL
+            elif A_G != 0 and A_L == 0:
+                UG = np.mean(earnings_G) + A_G * CVaRG
+                UL = np.mean(earnings_L)
+            elif A_G == 0 and A_L == 0:
+                UG = np.mean(earnings_G)
+                UL = np.mean(earnings_L)
             else:
-                UG6 = np.mean(Scen_revenue_G6) + A_G6 * CVaRG6
-                UL2 = np.mean(Scen_revenue_L2) + A_L2 * CVaRL2
+                UG = np.mean(earnings_G) + A_G * CVaRG
+                UL = np.mean(earnings_L) + A_L * CVaRL
         else:
-            if  A_G6 == 0 and A_L2 != 0:
-                UG6 = np.mean(Scen_revenue_G6)
-                UL2 = (1 - A_L2) * np.mean(Scen_revenue_L2) + A_L2 * CVaRL2
-            elif  A_G6 != 0 and A_L2 == 0:
-                UG6 = (1 - A_G6) * np.mean(Scen_revenue_G6) + A_G6 * CVaRG6
-                UL2 = np.mean(Scen_revenue_L2)
-            elif A_G6 == 0 and A_L2 == 0:
-                UG6 = np.mean(Scen_revenue_G6)
-                UL2 = np.mean(Scen_revenue_L2)
+            if  A_G == 0 and A_L != 0:
+                UG = np.mean(earnings_G)
+                UL = (1 - A_L) * np.mean(earnings_G) + A_L * CVaRL
+            elif  A_G != 0 and A_L == 0:
+                UG = (1 - A_G) * np.mean(earnings_L) + A_G * CVaRG
+                UL = np.mean(earnings_G)
+            elif A_G == 0 and A_L == 0:
+                UG = np.mean(earnings_G)
+                UL = np.mean(earnings_L)
             else:
-                UG6 = (1 - A_G6) * np.mean(Scen_revenue_G6) + A_G6 * CVaRG6
-                UL2 = (1 - A_L2) * np.mean(Scen_revenue_L2) + A_L2 * CVaRL2
-           
-        
+                UG = (1 - A_G) * np.mean(earnings_G) + A_G * CVaRG
+                UL = (1 - A_L) * np.mean(earnings_L) + A_L * CVaRL
+        """
         # Calculate Nash product ( Negative for minimization)
-        nash_prod = ((UG6 - Zeta_G6) * (UL2 - Zeta_L2))
+        nash_prod = ((UG - Zeta_G) * (UL - Zeta_L))
         
-        return UG6,UL2, nash_prod
+        return UG,UL, nash_prod
 
     def objective(x):
         S, M = x
-        UG6,UL2,nash_prod = calculate_utilities(S, M)
-
-        log_term_G6 = np.log(np.maximum(UG6 - Zeta_G6, 1e-10))
-        log_term_L2 = np.log(np.maximum(UL2 - Zeta_L2, 1e-10))
-        #return -(log_term_G6 + log_term_L2)  # Return negative for minimization
+        UG, UL, nash_prod = calculate_utilities(S, M)
         return -nash_prod  # Return negative for minimization
 
-    # Constraints: UG6 - Zeta_G6 > 0, UL2 - Zeta_L2 > 0
+    # Constraint: UG - Zeta_G >= 0
+    def constraint_UG_minus_ZetaG(x):
+        S, M = x
+        UG, _, _ = calculate_utilities(S, M)
+        return (UG - Zeta_G)
 
-    
+    # else round to 0.001
+    # Constraint: UL - Zeta_L >= 0
+    def constraint_UL_minus_ZetaL(x):
+        S, M = x
+        _, UL, _ = calculate_utilities(S, M)
+        return (UL - Zeta_L)
+
+    nonlinear_constraint_UG = NonlinearConstraint(constraint_UG_minus_ZetaG, 0, np.inf)
+    nonlinear_constraint_UL = NonlinearConstraint(constraint_UL_minus_ZetaL, 0, np.inf)
+
     # Define bounds for variables [S, M]
-    bounds = [(strikeprice_min, strikeprice_max), (contract_amount_min, contract_amount_max)]
-    
-    # Initial guess: midpoint of bounds
-    x0 = [(strikeprice_min + strikeprice_max)/2, (contract_amount_min + contract_amount_max)/2]
-    
-    # Optimize using SLSQP which handles bounds well
+    bounds = [(strikeprice_min* hours_in_year*1e-3, strikeprice_max* hours_in_year*1e-3 ) , (contract_amount_min, contract_amount_max  * hours_in_year* 1e-3)]
+    x0 = [((strikeprice_min + strikeprice_max) * hours_in_year*1e-3 )/2, (contract_amount_min + contract_amount_max * hours_in_year* 1e-3)/2]
+
     result = minimize(
         objective,
         x0,
         bounds=bounds,
+        constraints=[nonlinear_constraint_UG, nonlinear_constraint_UL],
         method='trust-constr',
         hess=None,
-        options={ 'maxiter': 2000,'disp': True}  # Add more debug info},
+        options={ 'maxiter': 5000,'disp': True},
+        tol=1e-9
     )
     
     if result.success:
         S_opt, M_opt = result.x
         nash_value = -result.fun  # Convert back to positive Nash product
         
-        if plot:
+        if plot == True:
             # Create a grid of strike prices and contract amounts
             strike_prices = np.linspace(strikeprice_min, strikeprice_max, 50)
             contract_amounts = np.linspace(contract_amount_min, contract_amount_max, 50)

@@ -16,29 +16,46 @@ from power_flow import OptimalPowerFlow
 from visualization import Plotting_Class
 from sensitivity_analysis import run_risk_sensitivity_analysis, run_bias_sensitivity_analysis
 from contract_negotiation import ContractNegotiation
-
+import copy
 def run_contract_negotiation(input_data: InputData, opf_results, old_obj_func: bool, 
                            A_G6_values: np.ndarray, A_L2_values: np.ndarray) -> tuple:
     """Run contract negotiation and sensitivity analysis with given OPF results."""
     # Run Contract Negotiation
+    # Store original values
+    original_A_G6 = input_data.A_G6
+    original_A_L2 = input_data.A_L2
+    original_K_G6 = input_data.K_G6
+    original_K_L2 = input_data.K_L2
+    
+    input_data.A_G6 = A_G6_values[1]  # Use middle value for A_G6
+    input_data.A_L2 = A_L2_values[1]  # Use middle value for A_L2
+  
     contract_model = ContractNegotiation(input_data, opf_results, old_obj_func=old_obj_func)
     contract_model.run()
+
+    print(2*"\nRunning contract negotiation...")
     
     # Run Sensitivity Analyses
-    risk_sensitivity_results, earnings_sensitivity = run_risk_sensitivity_analysis(
-        input_data, opf_results, A_G6_values, A_L2_values
-    )
+    #risk_sensitivity_results, earnings_sensitivity = run_risk_sensitivity_analysis(input_data, opf_results, A_G6_values, A_L2_values, old_obj_func=old_obj_func)
+
+   # bias_sensitivity_results = run_bias_sensitivity_analysis(input_data, opf_results,old_obj_func)
     
-    bias_sensitivity_results = run_bias_sensitivity_analysis(input_data, opf_results)
+             # Restore original values
+    input_data.A_G6 = original_A_G6
+    input_data.A_L2 = original_A_L2
+    input_data.K_G6 = original_K_G6
+    input_data.K_L2 = original_K_L2
     
-    return contract_model, risk_sensitivity_results, earnings_sensitivity, bias_sensitivity_results
+    
+
+    return contract_model#, risk_sensitivity_results, earnings_sensitivity#, bias_sensitivity_results
 
 
 
 def main():    
     # Define simulation parameters
     HOURS = 24
-    DAYS = 5
+    DAYS = 6
     SCENARIOS = 25
     A_L2 = 0.5 # Initial risk aversion
     A_G6 = 0.5 # Initial risk aversion
@@ -94,14 +111,19 @@ def main():
 
      # Define risk aversion parameters for both objective functions
     
-    old_obj_params = {
-        'A_G6_values': np.array([0.5, 1.0, 1.5]),  # A >= 0
-        'A_L2_values': np.array([0.5, 1.0, 1.5])
-    }
     
     new_obj_params = {
-        'A_G6_values': np.round(np.linspace(0.1, 0.9, 3), 2),  # A in [0,1]
-        'A_L2_values': np.round(np.linspace(0.1, 0.9, 3), 2)
+        #'A_G6_values': np.round(np.linspace(1, 0.5 , 3), 2),  # A in [0,1]
+        #'A_L2_values': np.round(np.linspace(1, 0.5, 3), 2)
+        'A_G6_values':  np.array([0.1,0.5,0.9]),  # A in [0,1]
+        'A_L2_values':  np.array([0.1,0.5,0.9])
+    }
+
+    old_obj_params = {
+        #'A_G6_values': np.array([1, 1, 1]),  # A >= 0
+        #A_L2_values': np.array([1, 1, 1])
+        'A_G6_values': np.round(1/new_obj_params['A_G6_values']-1,1), 
+        'A_L2_values': np.round(1/new_obj_params['A_L2_values']-1,1) # A >= 0
     }
 
       # Run OPF
@@ -112,17 +134,19 @@ def main():
     
     # Run contract negotiation for both objective functions with same OPF results
     print("\nRunning simulation with original objective function (E + A*CVaR)...")
+    """
     old_results = run_contract_negotiation(
-        input_data, 
+        copy.deepcopy(input_data), 
         opf_results,
         True, 
         old_obj_params['A_G6_values'], 
         old_obj_params['A_L2_values']
     )
+   """
     
     print("\nRunning simulation with modified objective function ((1-A)*E + A*CVaR)...")
     new_results = run_contract_negotiation(
-        input_data,
+        copy.deepcopy(input_data),
         opf_results,
         False,
         new_obj_params['A_G6_values'],
@@ -131,6 +155,9 @@ def main():
     
     # Create comparison plots
     print("\nGenerating comparison plots...")
+
+    print(new_results[1])
+    print(old_results[1])
     
     # Plot results for original objective function
     plot_obj_old = Plotting_Class(
