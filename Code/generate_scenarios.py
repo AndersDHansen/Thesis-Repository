@@ -4,180 +4,233 @@ This script generates price, production, capture rate, and load scenarios using 
 simulation and saves them to CSV files for later use.
 """
 
-from Forecasting import (
-    PriceForecastConfig,
-    PriceForecast,
-    HistoricalProductionConfig,
-    HistoricalProductionForecaster,
-    MonteCarloConfig,
-    MonteCarloSimulator,
-    CaptureRateConfig,
-    CaptureRateForecaster
-)
-import pandas as pd
-import os
-import numpy as np
-from tqdm import tqdm
+from __future__ import annotations
+
+from dataclasses import dataclass
 from pathlib import Path
-from concurrent.futures import ProcessPoolExecutor, as_completed
-import multiprocessing
+from typing import Optional
+
+import numpy as np
+import pandas as pd
+from scipy import stats
+
+# ───────────────────────── helpers ──────────────────────────
+
+def _yearly_index(start: str | pd.Timestamp, periods: int) -> pd.DatetimeIndex:
+    return pd.date_range(start=pd.Timestamp(start), periods=periods, freq="YS")
 
 
-def generate_scenario_batch(config):
-    """Generate a batch of scenarios for parallel processing"""
-    mc_cfg = MonteCarloConfig(n_simulations=config['batch_size'], random_seed=config['seed'])
-    
-    if config['type'] == 'price':
-        cfg = PriceForecastConfig(
-            time_horizon=config['time_horizon'],
-            start_date=config['start_date'],
-            csv_path=config['price_csv_path'],
-            random_seed=config['seed']
-        )
-        sim = MonteCarloSimulator(cfg, mc_cfg, PriceForecast)
-    elif config['type'] == 'production':
-        cfg = HistoricalProductionConfig(
-            time_horizon=config['time_horizon'],
-            csv_path=config['prod_csv_path'],
-            start_date=config['start_date'],
-            capacity=config['generator_capacity'],
-            random_seed=config['seed']
-        )
-        sim = MonteCarloSimulator(cfg, mc_cfg, HistoricalProductionForecaster)
-    elif config['type'] == 'capture_rate':
-        cfg = CaptureRateConfig(
-            time_horizon=config['time_horizon'],
-            start_date=config['start_date'],
-            csv_path=config['price_csv_path'],
-            random_seed=config['seed']
-        )
-        sim = MonteCarloSimulator(cfg, mc_cfg, CaptureRateForecaster)
-    else:  # load
-        rng = np.random.default_rng(config['seed'])
-        load_mean = config['load_mean']
-        load_std = config['load_std']
-        scenarios = rng.normal(load_mean, load_std, 
-                             size=(config['time_horizon'], config['batch_size'])) * 8760 / 1000
-        return scenarios
+def _save_matrix(folder: Path, kind: str, mat: np.ndarray, start: str | pd.Timestamp):
+    """Save a (years × sims) matrix as `<kind>_scenarios_<y>y_<s>s.csv`."""
+    years, sims = mat.shape
+    df = pd.DataFrame(mat, index=_yearly_index(start, years),
+                      columns=pd.RangeIndex(sims, name="sim"))
+    fname = f"{kind}_scenarios_{years}y_{sims}s.csv"
+    df.to_csv(folder / fname, index_label="year")
 
-    return sim.run().values
 
-def generate_and_save_scenarios(
-    time_horizon: int,
+# ───────────────────────── price model ──────────────────────
+
+@dataclass
+class PriceModel:
+    loc: float
+    scale: float
+    rng: np.random.Generator
+
+    @classmethod
+    def from_csv(cls, csv_path: str, seed: Optional[int] = None) -> "PriceModel":
+        df = pd.read_csv(csv_path, sep=";", decimal=",")
+        df.index = pd.to_datetime(df["HourUTC"])
+        yearly = df["DK2_EUR/MWh"].resample("YE").sum().to_numpy(float)
+        loc, scale = stats.expon.fit(yearly)
+        return cls(loc, scale, np.random.default_rng(seed))
+
+    def simulate(self, years: int, sims: int) -> np.ndarray:
+        return self.rng.exponential(self.scale, (years, sims)) + self.loc
+
+
+# ──────────────────── production model (GEV) ─────────────────
+
+@dataclass
+class ProductionModel:
+    shape: float
+    loc: float
+    scale: float
+    cap_gwh: Optional[float]
+    rng: np.random.Generator
+
+    @classmethod
+    def from_csv(
+        cls,
+        csv_path: str,
+        capacity_mw: Optional[float] = None,
+        seed: Optional[int] = None,
+    ) -> "ProductionModel":
+        df = pd.read_csv(csv_path)
+        df["time"] = pd.to_datetime(df["time"])
+        yearly = df.set_index("time")["electricity"].resample("YE").sum().to_numpy(float)
+        shape, loc, scale = stats.genextreme.fit(yearly)
+        cap_gwh = capacity_mw * 8_760 / 1_000 if capacity_mw else None
+        return cls(shape, loc, scale, cap_gwh, np.random.default_rng(seed))
+
+    def simulate(self, years: int, sims: int) -> np.ndarray:
+        draws = stats.genextreme.rvs(
+            self.shape, loc=self.loc, scale=self.scale,
+            size=(years, sims), random_state=self.rng
+        ) / 1_000  # MWh → GWh
+        if self.cap_gwh is not None:
+            np.clip(draws, 0, self.cap_gwh, out=draws)
+        return draws
+
+
+# ───────────────────── capture‑rate model ───────────────────
+
+@dataclass
+class CaptureRateModel:
+    price_mu: float
+    price_std: float
+    prod_mu: float
+    prod_std:float
+    corr_agg:float
+    z_year_corr:np.ndarray
+    mu_z_corr:float
+    std_z_corr:float
+    rng: np.random.Generator
+
+    @classmethod
+    def from_csv(cls, csv_path: str, seed: Optional[int] = None) -> "CaptureRateModel":
+        df = pd.read_csv(csv_path, sep=";", decimal=",")
+        df["HourUTC"] = pd.to_datetime(df["HourUTC"])
+        df = df.set_index("HourUTC")
+
+        # try to locate a production column; fall back to flat 1.0 rate
+        prod_col = next((c for c in df.columns if "MWhDK2" in c or "prod" in c.lower()), None)
+        if prod_col is None:
+            return cls(1.0, 0.05, np.random.default_rng(seed))
+
+        price = df["DK2_EUR/MWh"].to_numpy(float)
+        prod = df[prod_col].to_numpy(float)
+
+        # Mean and std for price
+        price_mu, price_std = df['DK2_EUR/MWh'].mean(), df['DK2_EUR/MWh'].std()  # EUR/MWh
+
+        # Mean and std for production
+        prod_mu, prod_std = df['OnshoreWindGe50kW_MWhDK2'].mean(), df['OnshoreWindGe50kW_MWhDK2'].std()  # MWh
+
+        # Correlation across price and production [hour] to maintain correlation
+        # Add a 'year' column
+        df['year'] = df.index.year
+
+        # Compute hourly correlation between Onshore Wind and Price for each year
+        corr_by_year = (
+            df.groupby('year')[['OnshoreWindGe50kW_MWhDK2', 'DK2_EUR/MWh']]
+            .corr()
+            .iloc[0::2, 1]  # Select cross-correlations only
+            .reset_index()
+            .rename(columns={'DK2_EUR/MWh': 'hourly_corr'})
+            .drop('level_1', axis=1))
+        corr_by_year_arr = corr_by_year["hourly_corr"].to_numpy()[1:]
+
+        corr_agg = df["DK2_EUR/MWh"].corr(df["OnshoreWindGe50kW_MWhDK2"])
+
+        z_year_corr   = np.arctanh(corr_by_year_arr)   # Fisher-z
+        std_z_corr  = z_year_corr.std(ddof=1)      # unbiased SD
+        mu_z_corr     = z_year_corr.mean()    
+
+        
+
+        return cls(price_mu,price_std, prod_mu,prod_std,corr_agg,z_year_corr,mu_z_corr,std_z_corr, np.random.default_rng(seed))
+
+    def simulate(self, years: int, sims: int) -> np.ndarray:
+        
+        noise    = np.random.normal(0, self.std_z_corr, size=(years,sims))
+        rho_samples = self.mu_z_corr + noise
+        rho_samp  = np.tanh(rho_samples)                                # ρ ∈ (-1,1)
+
+
+        CR = 1 + rho_samp * (self.price_std/self.price_mu) *(self.prod_std/self.prod_mu)
+        return CR
+
+
+# ───────────────────────── load model ───────────────────────
+
+_daily_mean = np.array([
+    337.01, 319.10, 285.94, 268.12, 318.61, 329.53, 335.84, 336.94,
+    316.81, 270.06, 250.76, 297.36, 310.81, 322.45, 338.52, 360.43,
+    341.99, 312.55, 351.49, 349.64, 363.59, 367.08, 336.56, 300.43,
+    285.71, 329.89, 335.36, 336.34, 337.69, 336.93,
+])
+_load_mean = _daily_mean.mean()            # MW per hour
+_load_std = np.sqrt(834.5748)              # derived variance
+
+
+def _simulate_load(years: int, sims: int, rng: np.random.Generator) -> np.ndarray:
+    load = rng.normal(_load_mean, _load_std, (years, sims)) * 8_760 / 1_000  # GWh/yr
+    return np.clip(load, 0, None)
+
+
+# ──────────── one‑shot scenario generator ───────────
+
+def run_scenarios(
+    *,
+    years: int,
     num_scenarios: int,
-    start_date: pd.Timestamp,
+    start_time: str | pd.Timestamp,
     price_csv_path: str,
     prod_csv_path: str,
-    generator_capacity: float,
-    output_dir: str,
-    random_seed: int = 42
+    capacity_mw: Optional[float],
+    output_dir: str = "outputs",
+    seed: int = 42,
 ):
-    """Generate Monte Carlo scenarios and save them to CSV files.
+    """Generate and save **price, production, capture‑rate and load** scenarios."""
 
-    Parameters
-    ----------
-    time_horizon : int
-        Number of time periods to simulate
-    num_scenarios : int
-        Number of Monte Carlo scenarios to generate
-    start_date : pd.Timestamp
-        Start date for the scenarios
-    price_csv_path : str
-        Path to historical price data CSV
-    prod_csv_path : str
-        Path to historical production data CSV
-    generator_capacity : float
-        Generator capacity in MW
-    output_dir : str
-        Directory to save output CSV files
-    random_seed : int, optional
-        Random seed for reproducibility, by default 42
-    """    # Create output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
 
-    # Create filename pattern
-    file_pattern = f"{{type}}_scenarios_{time_horizon}y_{num_scenarios}s.csv"
-    
-    # Load configuration data for load scenarios
-    daily_load_mean = np.array([
-        337.01, 319.10, 285.94, 268.12, 318.61, 329.53, 335.84, 336.94, 
-        316.81, 270.06, 250.76, 297.36, 310.81, 322.45, 338.52, 360.43, 
-        341.99, 312.55, 351.49, 349.64, 363.59, 367.08, 336.56, 300.43, 
-        285.71, 329.89, 335.36, 336.34, 337.69, 336.93
-    ])
-    load_mean = np.mean(daily_load_mean)
-    load_std = np.sqrt(834.5748)
+    rng = np.random.default_rng(seed)
 
-    # Configure parallel processing
-    num_cores = multiprocessing.cpu_count()
-    batch_size = num_scenarios // num_cores
-    remaining = num_scenarios % num_cores
+    # 1) price
+    price_mdl = PriceModel.from_csv(price_csv_path, seed)
+    price_mat = price_mdl.simulate(years, num_scenarios)
+    _save_matrix(out, "price", price_mat, start_time)
 
-    # Prepare batch configurations
-    all_configs = []
-    base_config = {
-        'time_horizon': time_horizon,
-        'start_date': start_date,
-        'price_csv_path': price_csv_path,
-        'prod_csv_path': prod_csv_path,
-        'generator_capacity': generator_capacity,
-    }
+    # 2) production
+    prod_mdl = ProductionModel.from_csv(prod_csv_path, capacity_mw, seed)
+    prod_mat = prod_mdl.simulate(years, num_scenarios)
+    _save_matrix(out, "production", prod_mat, start_time)
 
-    # Generate seeds for each batch to ensure reproducibility
-    rng = np.random.default_rng(random_seed)
-    batch_seeds = rng.integers(0, 2**32, size=num_cores * 4)  # 4 types of scenarios
+    # 3) capture‑rate (just needs price file that already has production col)
+    cr_mdl = CaptureRateModel.from_csv(price_csv_path, seed)
+    cr_mat = cr_mdl.simulate(years, num_scenarios)
+    _save_matrix(out, "capture_rate", cr_mat, start_time)
 
-    for scenario_type in ['price', 'production', 'capture_rate', 'load']:
-        scenarios_list = []
-        with ProcessPoolExecutor(max_workers=num_cores) as executor:
-            futures = []
-            for i in range(num_cores):
-                cfg = base_config.copy()
-                cfg.update({
-                    'type': scenario_type,
-                    'batch_size': batch_size + (1 if i < remaining else 0),
-                    'seed': batch_seeds[i],
-                    'load_mean': load_mean,
-                    'load_std': load_std
-                })
-                futures.append(executor.submit(generate_scenario_batch, cfg))
-            
-            # Collect results with progress bar
-            for future in tqdm(as_completed(futures), 
-                             total=len(futures), 
-                             desc=f"Generating {scenario_type} scenarios"):
-                scenarios_list.append(future.result())
+    # 4) load
+    load_mat = _simulate_load(years, num_scenarios, rng)
+    _save_matrix(out, "load", load_mat, start_time)
 
-        # Combine results and save
-        all_scenarios = np.hstack(scenarios_list)
-        df = pd.DataFrame(
-            all_scenarios,
-            index=pd.date_range(start=start_date, periods=time_horizon, freq='YS'),
-            columns=[f'scenario_{i+1}' for i in range(num_scenarios)]
-        )
-        df.to_csv(Path(output_dir) / file_pattern.format(type=scenario_type))
+    print(f"Wrote scenarios to {out.resolve()}")
 
 if __name__ == "__main__":
     # Example usage
-    time_horizon = 2  # 10 years
+    years = 2  # 10 years
     num_scenarios = 1000
 
     # Wind Profile 
     csv_wind = "Code/Data/Wind/combined_wind_data.csv"  # adjust path if needed
     csv_solar = "Code/Data/Solar/combined_solar_data.csv"  # adjust path if needed
 
-    start_date = pd.Timestamp("2025-01-01")
+    start_time = pd.Timestamp("2025-01-01")
     price_csv_path =  "Code/Data/EnergyReport.csv"
     prod_csv_path = csv_wind
-    generator_capacity = 100  # MW
-    output_dir = "scenarios"    
-    generate_and_save_scenarios(
-        time_horizon=time_horizon,
+    capacity_mw = 100  # MW
+    output_dir = "Code/scenarios"    
+    run_scenarios(
+        years=years,
         num_scenarios=num_scenarios,
-        start_date=start_date,
+        start_time=start_time,
         price_csv_path=price_csv_path,
         prod_csv_path=prod_csv_path,
-        generator_capacity=generator_capacity,
+        capacity_mw=capacity_mw,
         output_dir=output_dir
     )
     print("All scenarios generated successfully")
