@@ -19,8 +19,18 @@ from numpy.random import laplace
 class ContractNegotiation:
     """
     Implements contract negotiation between generator and load using Nash bargaining.
-    """
-    def __init__(self, input_data, provider,old_obj_func=False):
+    """    
+    def __init__(self, input_data, provider, old_obj_func=False):
+        """Initialize contract negotiation model with loaded scenarios.
+        
+        Args:
+            input_data: Input data object containing loaded scenarios and parameters
+            provider: Provider object that supplies price, production and capture rate data
+            old_obj_func: Whether to use old objective function formulation
+            
+        Raises:
+            ValueError: If required data is missing
+        """
         self.data = input_data
         self.provider = provider
         self.old_obj_func = old_obj_func
@@ -28,105 +38,114 @@ class ContractNegotiation:
         self.scipy_results = Expando()
         self.variables = Expando()
         self.constraints = Expando()
-        self._build_statistics()
-        self._build_model()
-
+        
+      
         self.plots_dir = os.path.join(os.path.dirname(__file__), 'Plots')
         os.makedirs(self.plots_dir, exist_ok=True)
-
-    def _build_statistics(self):
-        """Calculate statistical measures needed for negotiation."""
-        # Load data from Forecast or OPF 
-
-        price_mat  = self.provider.price_matrix() # if forecast is used ('N3') is redudant, but causes no error 
-        prod_mat   = self.provider.production_matrix() # # if forecast is used ('G') is redudant, but causes no error 
-        CR_mat  = self.provider.capture_rate_matrix()
-        # Days in per month
-        #self.data.days_in_month = prod_mat.index.to_series().groupby(prod_mat.index.to_period('M')).first().dt.days_in_month
-        #self.data.hours_in_day = 24# hours in a day 
-        #self.data.hours_in_month = self.data.days_in_month * self.data.hours_in_day # hours in a month
-        self.data.hours_in_year = 8760 # hours in a year    
-        self.data.PROB = self.provider.probability
-        self.data.price_true = price_mat
-        self.data.capture_rate = CR_mat.values
-        self.data.retail_price = 0
-
-        self.data.retail_aggregated = self.data.retail_price *  self.data.hours_in_year *1000  # Retail price aggregated over time periods $/GWh
         
-        # Just temporary upscaling load capacity to match production to some extent
-        self.data.load_scenarios = self.data.load_scenarios *0.75 # Upscale load capacity for Load
-        
-        #self.data.K_G = -0.6
-        #self.data.K_L = -0.7
-
-        # Calculate biased prices
-        self.data.price_G = (self.data.K_G * self.data.price_true.mean()) + self.data.price_true
-        self.data.price_L = (self.data.K_L * self.data.price_true.mean()) + self.data.price_true
-
-       
-        # Generator production
-        self.data.generator_production_df = pd.DataFrame(prod_mat)
-        self.data.generator_production = prod_mat
-        self.data.price_mean_true = self.data.price_true.mean() # Mean price at node N3
-        self.data.price_std_true = self.data.price_true.std(ddof=1) # Std price at node N3
-
-        # for adding fatter tail to tdistirbution
-        #scale = 0.15 * self.data.price_true.mean()  # or tweak as needed
-        #noise = laplace(loc=0.0, scale=scale, size=self.data.price_true.shape)
-        #self.data.price_true += noise
-
-        #Make this a call from utility function 
-        self.data.net_earnings_no_contract_G_df=  self.data.capture_rate * self.data.generator_production_df*self.data.price_true
-        # True net earnings for G given correct price distribution
-        self.data.net_earnings_no_contract_true_G = self.data.net_earnings_no_contract_G_df.sum(axis=0) # Generator G earnings in numpy array for calculations ( Total Sum per Scenario)
-        # Biased net earnings for G given biased price distribution K
-        self.data.net_earnings_no_contract_priceG_G_df = self.data.capture_rate * self.data.generator_production_df*self.data.price_G
-        self.data.net_earnings_no_contract_priceG_G =  self.data.net_earnings_no_contract_priceG_G_df.sum()
-        # Load L earnings in numpy array for calculations
-        self.data.net_earnings_no_contract_true_L = (self.data.load_scenarios*( - self.data.price_true)).sum(axis=0)
-        # Load L earnings in numpy array for calculations
-        self.data.net_earnings_no_contract_priceL_L = (self.data.load_scenarios*(-self.data.price_L)).sum(axis=0)
-        
-        #CVaR calculation of No contract (TRue )
-        self.data.CVaR_no_contract_priceG_G = calculate_cvar_left(self.data.net_earnings_no_contract_priceG_G,self.data.alpha) # CVaR for G
-        self.data.CVaR_no_contract_priceL_L = calculate_cvar_left(self.data.net_earnings_no_contract_priceL_L,self.data.alpha)
-
-        # New Utility Function 
-        self.data.Zeta_G=(1-self.data.A_G)*self.data.net_earnings_no_contract_priceG_G.mean() + self.data.A_G*self.data.CVaR_no_contract_priceG_G
-        self.data.Zeta_L=(1-self.data.A_L)*self.data.net_earnings_no_contract_priceL_L.mean() + self.data.A_L*self.data.CVaR_no_contract_priceL_L
-
-        # Threat Points for generator and Load 
-      
-        num_scenarios = self.data.price_true.shape[1]  # Match your existing number of scenarios
-        time_periods = self.data.price_true.shape[0] # Match your existing time periods
-        time_periods_hours = time_periods * self.data.hours_in_year  # Total hours in the time period
+        # Build statistical measures and optimization model
+        self._build_statistics()
+        self._build_model()    
+          # Validate required data is present
+        required_attrs = ['price_true', 'load_scenarios', 'generator_production', 'capture_rate']
+        missing = [attr for attr in required_attrs if not hasattr(self.data, attr) or getattr(self.data, attr) is None]
+        if missing:
+            raise ValueError(f"Missing required data: {', '.join(missing)}")
             
-        self.data.lambda_sum_true_per_scenario = self.data.price_true.sum(axis=0) # Sum across time periods for each scenario
-        self.data.lambda_sum_G_per_scenario = self.data.price_G.sum(axis=0) # Sum across time periods for each scenario
-        self.data.lambda_sum_L_per_scenario = self.data.price_L.sum(axis=0) # Sum across time periods for each scenario
-        # Calculate E^P(λ∑) - Expected value of the sum over T (using TRUE distribution)
+        
+    def _build_statistics(self):
+        """Calculate statistical measures needed for negotiation using loaded scenarios."""
+      
+
+        #Load Data
+        self.data.price_true = self.provider.price_matrix()
+        self.data.generator_production = self.provider.production_matrix()
+        self.data.capture_rate = self.provider.capture_rate_matrix()
+        self.data.load_scenarios = self.provider.load_matrix()
+        # Set basic parameters
+        self.data.hours_in_year = 8760
+        # Equal probability for all scenarios
+        self.data.PROB = np.ones(self.data.price_true.shape[1]) / self.data.price_true.shape[1]
+        self.data.retail_price = 0        # Aggregate retail price over time periods
+        self.data.retail_aggregated = self.data.retail_price * self.data.hours_in_year * 1000  # $/GWh
+
+        # Calculate basic statistics from loaded scenarios
+        mean_price = self.data.price_true.mean()
+        
+        # Calculate biased prices using mean price
+        self.data.price_G = (self.data.K_G * mean_price) + self.data.price_true
+        self.data.price_L = (self.data.K_L * mean_price) + self.data.price_true
+        
+        # Store basic statistics
+        self.data.price_mean_true = mean_price
+        self.data.price_std_true = self.data.price_true.std(ddof=1)        # Calculate generator earnings without contracts
+        # Using loaded capture rate and production scenarios
+        self.data.net_earnings_no_contract_G_df = pd.DataFrame(
+            self.data.capture_rate * self.data.generator_production * self.data.price_true
+        )
+        
+        # Calculate true net earnings for generator with correct price distribution
+        self.data.net_earnings_no_contract_true_G = self.data.net_earnings_no_contract_G_df.sum(axis=0)
+        
+        # Calculate biased net earnings for generator with price bias K_G
+        self.data.net_earnings_no_contract_priceG_G_df = pd.DataFrame(
+            self.data.capture_rate * self.data.generator_production * self.data.price_G
+        )
+        self.data.net_earnings_no_contract_priceG_G = self.data.net_earnings_no_contract_priceG_G_df.sum(axis=0)
+        
+        # Calculate load earnings with true and biased prices
+        self.data.net_earnings_no_contract_true_L = (self.data.load_scenarios * (-self.data.price_true)).sum(axis=0)
+        self.data.net_earnings_no_contract_priceL_L = (self.data.load_scenarios * (-self.data.price_L)).sum(axis=0)
+          # Calculate CVaR for no-contract scenarios
+        self.data.CVaR_no_contract_priceG_G = calculate_cvar_left(
+            self.data.net_earnings_no_contract_priceG_G,
+            self.data.alpha
+        )
+        self.data.CVaR_no_contract_priceL_L = calculate_cvar_left(
+            self.data.net_earnings_no_contract_priceL_L,
+            self.data.alpha
+        )
+
+        # Calculate utility functions using weighted average of mean and CVaR
+        self.data.Zeta_G = (
+            (1 - self.data.A_G) * self.data.net_earnings_no_contract_priceG_G.mean() + 
+            self.data.A_G * self.data.CVaR_no_contract_priceG_G
+        )
+        self.data.Zeta_L = (
+            (1 - self.data.A_L) * self.data.net_earnings_no_contract_priceL_L.mean() + 
+            self.data.A_L * self.data.CVaR_no_contract_priceL_L
+        )
+
+        # Prepare for threat point calculations
+        # Calculate dimensions from loaded scenarios
+        num_scenarios = self.data.price_true.shape[1]
+        time_periods = self.data.price_true.shape[0]
+        time_periods_hours = time_periods * self.data.hours_in_year
+            
+        # Calculate scenario sums and expectations
+        self.data.lambda_sum_true_per_scenario = self.data.price_true.sum(axis=0)
+        self.data.lambda_sum_G_per_scenario = self.data.price_G.sum(axis=0)
+        self.data.lambda_sum_L_per_scenario = self.data.price_L.sum(axis=0)
         self.data.expected_lambda_sum_true = self.data.lambda_sum_true_per_scenario.mean()
         
-        # Capture Prices and Capture Rate 
-
-        self.data.Capture_price = self.data.price_true * self.data.capture_rate  # Capture price for G (per month)
-        self.data.Capture_price_h = self.data.Capture_price / self.data.hours_in_year  # Capture price per hour for G
-        self.data.Capture_rate = self.data.Capture_price / self.data.price_true.mean(axis=0)  # Capture rate for G (should it be the total mean price or the mean price per scenario?)
-
-        # Average Capture Price and Rate 
+        # Calculate capture prices using loaded capture rates
+        self.data.Capture_price = self.data.price_true * self.data.capture_rate * 1000 # Convert EUR/MWh/Year
+        self.data.Capture_price_h = self.data.Capture_price / self.data.hours_in_year
+        
+        # Calculate average capture metrics
         self.data.Capture_price_avg = self.data.Capture_price_h.mean()
-        Capture_rate_avg = self.data.Capture_rate.mean()
+        self.data.Capture_rate_avg = self.data.capture_rate.mean()
 
         # Calculate CVaR^P(λ∑) - CVaR of the sum over T (using TRUE distribution)
         # Assumes calculate_cvar returns the expected value of the variable *given* it's in the alpha-tail
-        self.data.left_Cvar_capture_lambda_sum_true = calculate_cvar_left(self.data.Capture_rate*self.data.lambda_sum_true_per_scenario, self.data.alpha)
+        #self.data.left_Cvar_capture_lambda_sum_true = calculate_cvar_left(self.data.Capture_rate*self.data.lambda_sum_true_per_scenario, self.data.alpha)
         self.data.left_cvar_lambda_sum_true = calculate_cvar_left(self.data.lambda_sum_true_per_scenario, self.data.alpha)
         self.data.right_cvar_lambda_sum_true = calculate_cvar_right(self.data.lambda_sum_true_per_scenario, self.data.alpha)
 
         # Calculate CVaR^P(-λ∑) - CVaR of the negative sum over T (using TRUE distribution)
         # This corresponds to the risk of low LMPs
         self.data.left_Cvar_neg_lambda_sum_true = calculate_cvar_left(-self.data.lambda_sum_true_per_scenario, self.data.alpha) 
-        self.data.left_Cvar_neg_capture_lambda_sum_true = calculate_cvar_left(-self.data.Capture_rate*self.data.lambda_sum_true_per_scenario, self.data.alpha) 
+        #self.data.left_Cvar_neg_capture_lambda_sum_true = calculate_cvar_left(-self.data.Capture_rate*self.data.lambda_sum_true_per_scenario, self.data.alpha) 
         self.data.right_cvar_neg_lambda_sum_true = calculate_cvar_left(-self.data.lambda_sum_true_per_scenario, self.data.alpha)
 
         # Determine the *absolute* bias constants K_G and K_L for the equations
@@ -186,10 +205,10 @@ class ContractNegotiation:
         # New Objective function defition 
         
         
-        self.data.term1_G_new =(( (1-self.data.A_G) * self.data.expected_lambda_sum_true +self.data.K_G_lambda_Sigma ) - self.data.A_G * self.data.left_Cvar_neg_capture_lambda_sum_true)/ time_periods    # SR* numerator for Gen
+        self.data.term1_G_new =(( (1-self.data.A_G) * self.data.expected_lambda_sum_true +self.data.K_G_lambda_Sigma ) - self.data.A_G * self.data.left_Cvar_neg_lambda_sum_true)/ time_periods    # SR* numerator for Gen
 
         # high-price risk (feeds S_U*)
-        self.data.term2_G_new = (((1-self.data.A_G) * self.data.expected_lambda_sum_true + self.data.K_G_lambda_Sigma ) + self.data.A_G * self.data.left_Cvar_capture_lambda_sum_true) / time_periods     # SU* numerator for Gen
+        self.data.term2_G_new = (((1-self.data.A_G) * self.data.expected_lambda_sum_true + self.data.K_G_lambda_Sigma ) + self.data.A_G * self.data.left_cvar_lambda_sum_true) / time_periods     # SU* numerator for Gen
   
         # Load-serving entity ––––––––––––––––––––––––––––––––––––––––––––––
         # low-price risk  (feeds S_R*)
@@ -301,7 +320,7 @@ class ContractNegotiation:
             #With costs
             #self.variables.eta_G[s] >=self.variables.zeta_G - gp.quicksum((self.data.price_G[t,s]-self.data.generator_cost_a['G'])*self.data.generator_production[t,s]-self.data.generator_cost_b['G']*(self.data.generator_production[t,s]*self.data.generator_production[t,s])
             #                                                                +( self.variables.S- self.data.price_G[t,s])*self.variables.M for t in self.data.TIME),
-            self.variables.eta_G[s] >=(self.variables.zeta_G - gp.quicksum(self.data.capture_rate[t,s]*self.data.price_G.iat[t,s]*self.data.generator_production.iat[t,s]
+            self.variables.eta_G[s] >=(self.variables.zeta_G - gp.quicksum(self.data.capture_rate.iat[t,s]*self.data.price_G.iat[t,s]*self.data.generator_production.iat[t,s]
                                                                            +( (self.variables.S)- self.data.price_G.iat[t,s])*(self.variables.M) for t in self.data.TIME)),
             name='Eta_Aversion_Constraint_G_in_scenario_{0}'.format(s)
         )
@@ -309,8 +328,8 @@ class ContractNegotiation:
         }
         self.constraints.eta_L_constraint = {
             s: self.model.addConstr(
-            self.variables.eta_L[s] >=(self.variables.zeta_L - gp.quicksum(self.data.load_scenarios[t,s]*(self.data.retail_aggregated-self.data.price_L.values[t,s])
-                                                                            +(self.data.price_L.values[t,s] - (self.variables.S))*(self.variables.M) for t in self.data.TIME)),
+            self.variables.eta_L[s] >=(self.variables.zeta_L - gp.quicksum(self.data.load_scenarios.iat[t,s]*(self.data.retail_aggregated-self.data.price_L.iat[t,s])
+                                                                            +(self.data.price_L.iat[t,s] - (self.variables.S))*(self.variables.M) for t in self.data.TIME)),
             name='Eta_Aversion_Constraint_L_in_scenario_{0}'.format(s)
         )
         for s in self.data.SCENARIOS_L
@@ -321,33 +340,61 @@ class ContractNegotiation:
 
     def _build_objective(self):
         """Build the objective function for contract negotiation."""
-        #Expected Earnings function for G 
-        #EuG =  gp.quicksum((self.data.price_G[t,s]-self.data.generator_cost_a['G'])*self.data.generator_production[t,s]-self.data.generator_cost_b['G']*(self.data.generator_production[t,s]*self.data.generator_production[t,s]) for t in self.data.TIME for s in self.data.SCENARIOS_L)
-        EuG =  gp.quicksum(self.data.capture_rate[t,s]*self.data.price_G.iat[t,s]*self.data.generator_production.iat[t,s] for t in self.data.TIME for s in self.data.SCENARIOS_L)
-        SMG =  gp.quicksum((self.variables.S- self.data.price_G.iat[t,s])*(self.variables.M ) for t in self.data.TIME for s in self.data.SCENARIOS_L)
-        #CVaR for G 
-        CVaRG = self.variables.zeta_G - (1/(1-self.data.alpha))*gp.quicksum((self.data.PROB*self.variables.eta_G[s])  for s in self.data.SCENARIOS_L)
+        EuG = gp.quicksum(
+        self.data.PROB[s]*
+        self.data.capture_rate.iat[t,s] * 
+        self.data.price_G.iat[t,s] * 
+        self.data.generator_production.iat[t,s] 
+        for t in self.data.TIME 
+        for s in self.data.SCENARIOS_L
+        )
+        
+        SMG = gp.quicksum(
+              self.data.PROB[s] * (self.variables.S - self.data.price_G.iat[t,s]) * self.variables.M 
+            for t in self.data.TIME 
+            for s in self.data.SCENARIOS_L
+        )
 
+        # Generator's CVaR
+        CVaRG = self.variables.zeta_G - (1/(1-self.data.alpha)) * gp.quicksum(
+            self.data.PROB[s] * self.variables.eta_G[s] 
+            for s in self.data.SCENARIOS_L
+        )
 
-        #Expected Earnings for L
-        EuL = gp.quicksum(self.data.load_scenarios[t,s]*(self.data.retail_aggregated-self.data.price_L.iat[t,s]) for t in self.data.TIME for s in self.data.SCENARIOS_L)
-        SML =  gp.quicksum((self.data.price_L.iat[t,s] - (self.variables.S))*(self.variables.M)for t in self.data.TIME for s in self.data.SCENARIOS_L) # contract for capaicty - so am using generator capacity
-        #CvaR for L
-        CVaRL = self.variables.zeta_L - (1/(1-self.data.alpha))*gp.quicksum((self.data.PROB*self.variables.eta_L[s])  for s in self.data.SCENARIOS_L)
+        # Load's market earnings and contract payments
+        EuL = gp.quicksum(
+            self.data.PROB[s] * 
+            self.data.load_scenarios.iat[t,s] * 
+            (self.data.retail_aggregated - self.data.price_L.iat[t,s])
+            for t in self.data.TIME 
+            for s in self.data.SCENARIOS_L
+        )
+        
+        SML = gp.quicksum(
+              self.data.PROB[s] * (self.data.price_L.iat[t,s] - self.variables.S) * self.variables.M
+            for t in self.data.TIME 
+            for s in self.data.SCENARIOS_L
+        )
+
+        # Load's CVaR
+        CVaRL = self.variables.zeta_L - (1/(1-self.data.alpha)) * gp.quicksum(
+            self.data.PROB[s] * self.variables.eta_L[s] 
+            for s in self.data.SCENARIOS_L
+        )
+
+        # Calculate utilities with risk aversion
+        UG = (1-self.data.A_G) *  (EuG + SMG) + self.data.A_G * CVaRG
+        UL = (1-self.data.A_L) *  (EuL + SML) + self.data.A_L * CVaRL
 
         #Build Utiltiy Functions 
-        if self.old_obj_func == True:
-            UG = self.data.PROB*(EuG+SMG) +  self.data.A_G*CVaRG
-            UL = self.data.PROB*(EuL+ SML) + self.data.A_L*CVaRL
+        #if self.old_obj_func == True:
+        #    UG = self.data.PROB*(EuG+SMG) +  self.data.A_G*CVaRG
+        #    UL = self.data.PROB*(EuL+ SML) + self.data.A_L*CVaRL
         
             #UG = (1/(1+self.data.A_G)) * (self.data.PROB*(EuG+SMG) + self.data.A_G*CVaRG) 
             #UL = (1/(1+self.data.A_L)) * (self.data.PROB*(EuL+ SML) + self.data.A_L*CVaRL)
-        else:
-            UG = (1-self.data.A_G)*self.data.PROB*(EuG+SMG) + self.data.A_G*CVaRG
-            UL = (1-self.data.A_L)*self.data.PROB*(EuL+SML) + self.data.A_L*CVaRL
-           
-
-
+        #else:
+       
          # Link auxiliary variables to expressions
         self.model.addConstr(self.variables.arg_G == (UG - self.data.Zeta_G), "arg_G_constr")
         self.model.addConstr(self.variables.arg_L == (UL - self.data.Zeta_L), "arg_L_constr")
@@ -446,8 +493,10 @@ class ContractNegotiation:
         print(f"Optimal Objective Value (Expected Value) (Log): {self.results.objective_value}")
         print(f"Optimal Objective Value (Expected Value): {np.exp(self.results.objective_value)}")
         print(f"Nash Product with optimal S and M: {self.results.Nash_Product}")
-        print(f"Optimal Strike Price: {self.results.strike_price_hour}")
-        print(f"Optimal Contract Amount: {self.results.contract_amount_hour}")
+        print(f"Optimal Strike Price(Mio EUR/GWh/Year): {self.results.strike_price}")
+        print(f"Optimal Contract Amount(GWh/year): {self.results.contract_amount}")
+        print(f"Optimal Strike Price(EUR/MWh): {self.results.strike_price_hour}")
+        print(f"Optimal Contract Amount(MWh): {self.results.contract_amount_hour}")
         print(f"Optimal Utility for G: {self.results.utility_G}")
         print(f"Optimal Utility for L: {self.results.utility_L}")
         print(f"Threat Point G: {self.data.Zeta_G}")

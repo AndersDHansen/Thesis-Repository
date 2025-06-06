@@ -59,73 +59,32 @@ def run_contract_negotiation(input_data: InputData, provider, old_obj_func: bool
     return base_data, risk_sensitivity_results, earnings_sensitivity, bias_sensitivity_results
 
 
-def main():    
-    # Define simulation parameters
-    NUM_SCENARIOS = 100
-    A_L = 0.5 # Initial risk aversion
-    A_G = 0.5 # Initial risk aversion
-
-    time_horizon = 2 # temporary number of years simulated  
-    start_date = pd.to_datetime('2025-01-01')
-  
-
+def main():      # Define simulation parameters
+    time_horizon = 2  # Must match the scenarios that were generated
+    num_scenarios = 1000  # Must match the scenarios that were generated
+    A_L = 0.5  # Initial risk aversion
+    A_G = 0.5  # Initial risk aversion
+    
     # Load data and create InputData object 
     print("Loading data and preparing for simulation...")
-    (LOADS, TIME, SCENARIOS, PROB,
-    generator_contract_capacity,
-    load_scenarios, retail_price,
-    strikeprice_min, strikeprice_min, strikeprice_max,
-    contract_amount_min, contract_amount_max,
-    A_L, A_G, K_L, K_G, alpha )= load_data(
-    time_horizon=time_horizon,
-    NUM_SCENARIOS=NUM_SCENARIOS,
-    A_G=A_G, #A_L_value,
-    A_L=A_L #A_G_value,
-    )
-
-    # Create InputData object
-    input_data = InputData(
-        LOADS=LOADS,    
-        TIME=TIME,
-        NUM_SCENARIOS=NUM_SCENARIOS,
-        SCENARIOS=SCENARIOS,
-        PROB=PROB,
-        generator_contract_capacity = generator_contract_capacity,
-        load_scenarios=load_scenarios,
-        retail_price=retail_price,
-        strikeprice_min=strikeprice_min,
-        strikeprice_max=strikeprice_max,
-        contract_amount_min=contract_amount_min,
-        contract_amount_max=contract_amount_max,
-        A_L=A_L,
+    input_data = load_data(
+        time_horizon=time_horizon,
+        num_scenarios=num_scenarios,
         A_G=A_G,
-        K_L=K_L,
-        K_G=K_G,
-        alpha=alpha
-    )
-
-     # Define risk aversion parameters for both objective functions
-    
-    
+        A_L=A_L
+    )    # InputData object is now created in load_data()    # Define risk aversion parameters for both objective functions
     new_obj_params = {
-        #'A_G_values': np.round(np.linspace(1, 0.5 , 3), 2),  # A in [0,1]
-        #'A_L_values': np.round(np.linspace(1, 0.5, 3), 2)
-        'A_G_values':  np.array([0.1,0.5,0.9]),  # A in [0,1]
-        'A_L_values':  np.array([0.1,0.5,0.9])
+        'A_G_values': np.array([0.1, 0.5, 0.9]),  # A in [0,1]
+        'A_L_values': np.array([0.1, 0.5, 0.9])
     }
 
     old_obj_params = {
-        #'A_G_values': np.array([1, 1, 1]),  # A >= 0
-        #A_L_values': np.array([1, 1, 1])
-        'A_G_values': np.round(1/new_obj_params['A_G_values']-1,1), 
-        'A_L_values': np.round(1/new_obj_params['A_L_values']-1,1) # A >= 0
+        'A_G_values': np.round(1/new_obj_params['A_G_values']-1, 1),
+        'A_L_values': np.round(1/new_obj_params['A_L_values']-1, 1)  # A >= 0
     }
 
-  
-
-    # Run Forecasts      # ---------- Load scenarios from CSV files ---------------------------------
-    time_horizon = 2  # Must match the scenarios that were generated
-    num_scenarios = 10000  # Must match the scenarios that were generated    scenario_pattern = f"{{type}}_scenarios_{time_horizon}y_{num_scenarios}s.csv"
+    # Load scenarios from CSV files
+    scenario_pattern = f"{{type}}_scenarios_{time_horizon}y_{num_scenarios}s.csv"
 
     # Load price scenarios
     prices_df = pd.read_csv(f"scenarios/{scenario_pattern.format(type='price')}", index_col=0)
@@ -142,7 +101,7 @@ def main():
     load_df.index = pd.to_datetime(load_df.index)
 
 
-    provider = ForecastProvider(prices_df, prod_df,CR_df, prob=1/prices_df.shape[1])
+    provider = ForecastProvider(prices_df, prod_df,CR_df,load_df, prob=1/prices_df.shape[1])
 
     #provider = OPFProvider(opf_model.results,prob=1/SCENARIOS)
     # Run contract negotiation for both objective functions with same OPF results

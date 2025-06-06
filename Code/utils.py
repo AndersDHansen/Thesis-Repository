@@ -29,7 +29,7 @@ class PriceProductionProvider(ABC):
     @abstractmethod
     def price_matrix(self, node: str) -> pd.DataFrame: ...
     @abstractmethod
-    def production_matrix(self, generator: str) -> pd.DataFrame: ...
+    def production_matrix(self) -> pd.DataFrame: ...
     @property
     @abstractmethod
     def probability(self) -> float: ...
@@ -43,9 +43,9 @@ class OPFProvider(PriceProductionProvider):
     def price_matrix(self, node: str) -> np.ndarray:
         return build_dataframe(self._r.price[node], 'price').values
 
-    def production_matrix(self, generator: str) -> np.ndarray:
+    def production_matrix(self) -> np.ndarray:
         return build_dataframe(
-            self._r.generator_production[generator], 'gen_prod'
+            self._r.generator_production, 'gen_prod'
         ).values
 
     @property
@@ -53,10 +53,11 @@ class OPFProvider(PriceProductionProvider):
         return self._rPROB
 
 class ForecastProvider(PriceProductionProvider):
-    def __init__(self, price_df: pd.DataFrame, prod_df: pd.DataFrame, CR_df: pd.DataFrame, prob: float):
+    def __init__(self, price_df: pd.DataFrame, prod_df: pd.DataFrame, CR_df: pd.DataFrame, load_df: pd.DataFrame, prob: float):
         self._price = price_df          # shape (T, S)
         self._prod  = prod_df           # shape (T, S)
         self._CR    = CR_df                # shape (T, S)
+        self._load   = load_df
         self._prob  = prob              # usually 1/S
 
     def price_matrix(self) -> np.ndarray:
@@ -65,6 +66,8 @@ class ForecastProvider(PriceProductionProvider):
         return self._prod
     def capture_rate_matrix(self) -> np.ndarray:
         return self._CR
+    def load_matrix(self) ->  pd.DataFrame:
+        return self._load
 
     @property
     def probability(self) -> float:
