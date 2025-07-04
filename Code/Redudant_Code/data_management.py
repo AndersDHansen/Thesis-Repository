@@ -7,7 +7,7 @@ import pandas as pd
 from scipy.stats import qmc
 from dataclasses import dataclass                # ← add
 from typing import Dict, Optional                # ← add
-from Forecasting import MonteCarloConfig
+from Code.Redudant_Code.Forecasting import MonteCarloConfig
 
 @dataclass
 class LHLoadConfig:

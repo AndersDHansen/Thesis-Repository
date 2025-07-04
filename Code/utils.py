@@ -53,11 +53,12 @@ class OPFProvider(PriceProductionProvider):
         return self._rPROB
 
 class ForecastProvider(PriceProductionProvider):
-    def __init__(self, price_df: pd.DataFrame, prod_df: pd.DataFrame, CR_df: pd.DataFrame, load_df: pd.DataFrame, prob: float):
+    def __init__(self, price_df: pd.DataFrame, prod_df: pd.DataFrame, CR_df: pd.DataFrame, load_df: pd.DataFrame, load_CR : pd.DataFrame, prob: float):
         self._price = price_df          # shape (T, S)
         self._prod  = prod_df           # shape (T, S)
-        self._CR    = CR_df                # shape (T, S)
-        self._load   = load_df
+        self._CR    = CR_df             # shape (T, S)
+        self._load  = load_df           # shape (T, S)
+        self._load_CR = load_CR         # shape (T, S)
         self._prob  = prob              # usually 1/S
 
     def price_matrix(self) -> np.ndarray:
@@ -68,6 +69,8 @@ class ForecastProvider(PriceProductionProvider):
         return self._CR
     def load_matrix(self) ->  pd.DataFrame:
         return self._load
+    def load_capture_rate_matrix(self) -> np.ndarray:
+        return self._load_CR
 
     @property
     def probability(self) -> float:
@@ -130,6 +133,23 @@ def calculate_cvar_left(earnings: np.ndarray, alpha: float) -> float:
     var_threshold_lower = np.percentile(earnings_sorted, (1-alpha)*100)
     left_tail = earnings_sorted[earnings_sorted <= var_threshold_lower]
     cvar = np.mean(left_tail)
+    """
+    # Create figure
+    plt.figure(figsize=(10, 6))
+    
+    # Plot histogram
+    plt.hist(earnings, bins=30)
+    
+    # Add vertical line for VaR (threshold)
+    plt.axvline(x=var_threshold_lower, color='red', linestyle='--', 
+                label=f'VaR ({(1-alpha)*100:.0f}% percentile): {cvar:.2f}')
+
+    plt.axvline(x=cvar, color='darkred', linestyle='-', 
+                label=f'CVaR (Left Tail Mean): {cvar:.2f}')
+    plt.show()
+
+    """
+
     return cvar
 
 def calculate_cvar_right(earnings: np.ndarray, alpha: float) -> float:
@@ -154,112 +174,22 @@ def calculate_cvar_right(earnings: np.ndarray, alpha: float) -> float:
     cvar = np.mean(right_tail)
     return cvar
 
-def simulate_price_scenarios(
-    price_data: np.ndarray,
-    KG: float,
-    num_scenarios: int,
-    num_time_periods: int,
-    distribution: str = 'normal'
-) -> np.ndarray:
-    """Simulate price scenarios using different distributions.
-    
-    Parameters
-    ----------
-    price_data : ndarray
-        Original price data array
-    KG : float
-        Price bias parameter
-    num_scenarios : int
-        Number of scenarios to simulate
-    num_time_periods : int
-        Number of time periods to simulate
-    distribution : {'normal', 'lognormal', 'empirical'}, optional
-        Type of distribution to use, by default 'normal'
-    
-    Returns
-    -------
-    ndarray
-        Simulated price scenarios with shape (num_time_periods, num_scenarios)
-    
-    Raises
-    ------
-    ValueError
-        If distribution type is not supported
-    """
-    mean_price_true = np.mean(price_data)
-    std_price_true = np.std(price_data)
 
-    mean_price = mean_price_true + KG*mean_price_true if KG != 0 else mean_price_true
-        
-    if distribution == 'normal':
-        simulated_prices = norm.rvs(loc=mean_price, scale=std_price_true, 
-                                  size=(num_time_periods, num_scenarios))
+def _left_tail_mask(arr, alpha):
+    var_threshold_lower = np.percentile(arr, (1-alpha)*100)
+    left_tail = arr <= var_threshold_lower
     
-    elif distribution == 'lognormal':
-        mu = np.log(mean_price**2 / np.sqrt(std_price_true**2 + mean_price**2))
-        sigma = np.sqrt(np.log(1 + (std_price_true**2 / mean_price**2)))
-        simulated_prices = np.random.lognormal(mu, sigma, 
-                                             size=(num_time_periods, num_scenarios))
-    
-    elif distribution == 'empirical':
-        kernel = gaussian_kde(price_data.flatten())
-        simulated_prices = kernel.resample(size=(num_time_periods, num_scenarios))
-    
-    else:
-        raise ValueError(f"Unknown distribution type: {distribution}. "
-                        f"Supported types are: 'normal', 'lognormal', 'empirical'")
-    
-    return simulated_prices
+    return left_tail               # boolean mask
 
-def analyze_price_distribution(
-    price_data: np.ndarray,
-    simulated_prices_dict: Dict[str, np.ndarray]
-) -> Dict[str, Dict[str, Union[float, np.ndarray]]]:
-    """Analyze and compare original and simulated price distributions.
-    
-    Parameters
-    ----------
-    price_data : ndarray
-        Original price data array
-    simulated_prices_dict : dict
-        Dictionary of simulated prices for each distribution type
-    
-    Returns
-    -------
-    dict
-        Statistical metrics for each distribution including mean, standard deviation,
-        skewness, kurtosis, and percentiles
-    """
-    results = {}
-    
-    # Original data statistics
-    results['original'] = {
-        'mean': np.mean(price_data),
-        'std': np.std(price_data),
-        'skewness': skew(price_data.flatten()),
-        'kurtosis': kurtosis(price_data.flatten()),
-        'percentiles': np.percentile(price_data, [5, 25, 50, 75, 95])
-    }
-    
-    # Simulated data statistics
-    for dist_name, sim_prices in simulated_prices_dict.items():
-        results[dist_name] = {
-            'mean': np.mean(sim_prices),
-            'std': np.std(sim_prices),
-            'skewness': skew(sim_prices.flatten()),
-            'kurtosis': kurtosis(sim_prices.flatten()),
-            'percentiles': np.percentile(sim_prices, [5, 25, 50, 75, 95])
-        }
-    
-    return results
+
 
 def optimize_nash_product(
-    old_obj_func:bool,
-    hours_in_year: np.ndarray,
     price_G: np.ndarray,
     price_L: np.ndarray,
     A_G: float,
     A_L: float,
+    Beta_G: float,
+    Beta_L: float,
     net_earnings_no_contract_G: np.ndarray,
     net_earnings_no_contract_L: np.ndarray,
     Zeta_G: float,
@@ -316,36 +246,8 @@ def optimize_nash_product(
         # Calculate CVaR for both parties
         
         # Calculate utilities
-        """
-        if old_obj_func == True:
-            if A_G == 0 and A_L != 0:
-                UG = np.mean(earnings_G)
-                UL = np.mean(earnings_L) + A_L * CVaRL
-            elif A_G != 0 and A_L == 0:
-                UG = np.mean(earnings_G) + A_G * CVaRG
-                UL = np.mean(earnings_L)
-            elif A_G == 0 and A_L == 0:
-                UG = np.mean(earnings_G)
-                UL = np.mean(earnings_L)
-            else:
-                UG = np.mean(earnings_G) + A_G * CVaRG
-                UL = np.mean(earnings_L) + A_L * CVaRL
-        else:
-            if  A_G == 0 and A_L != 0:
-                UG = np.mean(earnings_G)
-                UL = (1 - A_L) * np.mean(earnings_G) + A_L * CVaRL
-            elif  A_G != 0 and A_L == 0:
-                UG = (1 - A_G) * np.mean(earnings_L) + A_G * CVaRG
-                UL = np.mean(earnings_G)
-            elif A_G == 0 and A_L == 0:
-                UG = np.mean(earnings_G)
-                UL = np.mean(earnings_L)
-            else:
-                UG = (1 - A_G) * np.mean(earnings_G) + A_G * CVaRG
-                UL = (1 - A_L) * np.mean(earnings_L) + A_L * CVaRL
-        """
         # Calculate Nash product ( Negative for minimization)
-        nash_prod = ((UG - Zeta_G) * (UL - Zeta_L))
+        nash_prod = (((UG - Zeta_G)**Beta_G) * ((UL - Zeta_L)**Beta_L))
         
         return UG,UL, nash_prod
 
@@ -371,8 +273,8 @@ def optimize_nash_product(
     nonlinear_constraint_UL = NonlinearConstraint(constraint_UL_minus_ZetaL, 0, np.inf)
 
     # Define bounds for variables [S, M]
-    bounds = [(strikeprice_min* hours_in_year*1e-3, strikeprice_max* hours_in_year*1e-3 ) , (contract_amount_min, contract_amount_max  * hours_in_year* 1e-3)]
-    x0 = [((strikeprice_min + strikeprice_max) * hours_in_year*1e-3 )/2, (contract_amount_min + contract_amount_max * hours_in_year* 1e-3)/2]
+    bounds = [(strikeprice_min, strikeprice_max) , (contract_amount_min, contract_amount_max  )]
+    x0 = [((strikeprice_min + strikeprice_max)  )/2, (contract_amount_min + contract_amount_max )/2]
 
     result = minimize(
         objective,
