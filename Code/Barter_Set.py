@@ -519,8 +519,8 @@ class Barter_Set:
                 plt.scatter(UG_Low_Mopt, UL_Low_Mopt, color='green', marker='o', s=100,    label=fr'V1 $\gamma$ = {100*M_SR:.2f}%, M* = ({self.data.generator_contract_capacity * M_SR:.2f} MW)')
                 plt.scatter(UG_High_Mopt, UL_High_Mopt, color='green', marker='*', s=150,     label=fr'V1 $\gamma$ = {100*M_SU:.2f}%, M* = ({self.data.generator_contract_capacity * M_SU:.2f} MW)')
             else:
-                plt.scatter(UG_Low_Mopt, UL_Low_Mopt, color='green', marker='o', s=100, label=f'V1 M* = ({M_SR:.2f} MW)')
-                plt.scatter(UG_High_Mopt, UL_High_Mopt, color='green', marker='*', s=150, label=f'V2 M* = ({M_SU:.2f} MW)')
+                plt.scatter(UG_Low_Mopt, UL_Low_Mopt, color='green', marker='o', s=100, label=f'V1 M* = ({M_SR:.2f} MWh)')
+                plt.scatter(UG_High_Mopt, UL_High_Mopt, color='green', marker='*', s=150, label=f'V2 M* = ({M_SU:.2f} MWh)')
 
             # Draw straight line between optimal points
             plt.plot([UG_Low_Mopt, UG_High_Mopt], 
@@ -626,7 +626,7 @@ class Barter_Set:
         as functions of strike price and contract amount.
         """
         # Define grid for strike price and contract amount
-        S_grid = np.linspace(self.data.strikeprice_min+30*1e-3, self.data.strikeprice_max, 200)
+        S_grid = np.linspace(self.data.strikeprice_min, self.data.strikeprice_max, 200)
         if self.data.contract_type == "PAP":
             M_grid = np.linspace(1, 1.2, 200)
         else:
@@ -698,10 +698,10 @@ class Barter_Set:
         ax.set_xlabel("Strike Price")
         ax.set_ylabel("Contract Amount")
         ax.set_title("Nash Product Contour (UG - Zeta_G) * (UL - Zeta_L)")
-        if self.data.contract_type == "PAP":
-            plt.scatter(self.results.strike_price,self.results.gamma, color='orange', marker='o', s=100, label='Optimization Result')
-        else:
-            plt.scatter(self.results.strike_price, self.results.contract_amount, color='orange', marker='o', s=100, label='Optimization Result')
+        #f self.data.contract_type == "PAP":
+        #    plt.scatter(self.results.strike_price,self.results.gamma, color='orange', marker='o', s=100, label='Optimization Result')
+        #else:
+        #    plt.scatter(self.results.strike_price, self.results.contract_amount, color='orange', marker='o', s=100, label='Optimization Result')
         # Plot the maximum point
         ax.scatter(max_S, max_M, color='red', marker='*', s=200, label='Max Nash Product')
         ax.legend()

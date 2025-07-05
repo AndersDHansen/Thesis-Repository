@@ -53,7 +53,7 @@ def load_sensitivity_results(contract_type,time_horizon, num_scenarios):
         "negotiation_power_sensitivity", "negotiation_earnings_sensitivity", "load_ratio_sensitivity" # beta results are negotation results
         ]
     
-    result_names_risk = ["risk_sensitivity", "risk_earnings_sensitivity",'boundary_results']
+    result_names_risk = ["risk_sensitivity", "risk_earnings_sensitivity"]
 
     results = {}
 
@@ -123,14 +123,14 @@ def load_boundary_results(contract_type,time_horizon, num_scenarios):
 def main():
     global time_horizon, num_scenarios, A_G, A_L, Beta_L, Beta_G, Barter, contract_type
     # Configuration for loading data 
-    time_horizon = 5  # Must match the scenarios that were generated
+    time_horizon = 20  # Must match the scenarios that were generated
     num_scenarios = 1000  # Must match the scenarios that were generated
     A_L = 0.5  # Initial risk aversion
     A_G = 0.5  # Initial risk aversion
     Beta_L = 0.5  # Asymmetry of power between load generator [0,1]
     Beta_G = 1-Beta_L  # Asymmetry of power between generation provider [0,1] - 1-beta_L    
     Barter = False  # Whether to relax the problem (Mc Cormick's relaxation)
-    contract_type = "PAP" # Either "Baseload" or "PAP"
+    contract_type = "Baseload" # Either "Baseload" or "PAP"
 
     # Load data and create InputData object 
     print("Loading data and preparing for simulation...")
@@ -296,11 +296,10 @@ def main():
     #plotter._plot_earnings_histograms_alpha(filename=os.path.join(DROPBOX_DIR, alpha_earnings_file))
      
       
-    if contract_type == "Baseload":
-        plotter._plot_no_contract_boundaries(filename=os.path.join(plots_folder, boundary_file))
-        plotter._plot_no_contract_boundaries(filename=os.path.join(DROPBOX_DIR, boundary_file))
-        plotter._plot_no_contract_boundaries_all(filename=os.path.join(plots_folder, boundary_file_all))
-        plotter._plot_no_contract_boundaries_all(filename=os.path.join(DROPBOX_DIR, boundary_file_all)) 
+    plotter._plot_no_contract_boundaries(filename=os.path.join(plots_folder, boundary_file))
+    #plotter._plot_no_contract_boundaries(filename=os.path.join(DROPBOX_DIR, boundary_file))
+    plotter._plot_no_contract_boundaries_all(filename=os.path.join(plots_folder, boundary_file_all))
+    #plotter._plot_no_contract_boundaries_all(filename=os.path.join(DROPBOX_DIR, boundary_file_all)) 
     print("All plots generated successfully!")
 
 

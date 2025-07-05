@@ -213,7 +213,7 @@ def save_results_to_csv(results_dict, contract_type,time_horizon, num_scenarios)
 
  
 def main():      # Define simulation parameters
-    time_horizon = 5  # Must match the scenarios that were generated
+    time_horizon = 20  # Must match the scenarios that were generated
     num_scenarios = 1000  # Must match the scenarios that were generated
     global A_L , A_G, boundary, sensitivity , Barter
     A_L = 0.5  # Initial risk aversion
@@ -224,7 +224,7 @@ def main():      # Define simulation parameters
     contract_type = "PAP" # Either "Baseload" or "PAP"
     sensitivity = True  # Whether to run sensitivity analysis
     num_sensitivity = 6 # Number of sensitivity analysis points for Beta_L and Beta_G ( and A_G and A_L)  
-    boundary = False  # Whether to run boundary analysis ( it takes awhile to run, so set to False for quick tests)
+    boundary = True  # Whether to run boundary analysis ( it takes awhile to run, so set to False for quick tests)
     print("Loading data and preparing for simulation...")
     input_data = load_data(
         time_horizon=time_horizon,

@@ -317,10 +317,7 @@ class ContractNegotiation:
             lb=0,ub=gp.GRB.INFINITY)
             for s in self.data.SCENARIOS_L
         }
-        #Mc Cormick Auxilliary Variable 
-        self.variables.W = self.model.addVar(name='W_bilinear_SM', lb=-gp.GRB.INFINITY, ub=gp.GRB.INFINITY)
-
-
+  
         self.model.update() 
 
     def _build_constraints(self):
@@ -559,7 +556,7 @@ class ContractNegotiation:
         """Initialize and build the complete optimization model."""
         self.model = gp.Model(name='Nash Bargaining Model')
         self.model.Params.NonConvex = 2
-        self.model.Params.FeasibilityTol = 1e-9
+        self.model.Params.FeasibilityTol = 1e-6
         self.model.Params.OutputFlag = 0
         self.model.Params.TimeLimit = 120
         self.model.Params.ObjScale   = 1e-6
@@ -582,11 +579,13 @@ class ContractNegotiation:
         self.results.strike_price = self.variables.S.x * 1e3
         if self.contract_type == 'PAP':
             #self.results.contract_amount = self.variables.gamma.x * (self.data.production.sum().mean()/len(self.data.TIME))  # Convert to GWh/year
-            self.results.contract_amount = self.variables.gamma.x  * self.data.generator_contract_capacity
+            self.results.contract_amount = self.variables.gamma.x  * self.data.generator_contract_capacity * self.data.hours_in_year # yearly
             self.results.gamma = self.variables.gamma.x
+            self.results.contract_amount_hour = self.results.gamma * self.data.generator_contract_capacity  # hourly
+
         else:
             self.results.contract_amount = self.variables.M.x  # Convert to GWh/year
-        self.results.contract_amount_hour = self.results.contract_amount  # Convert to GWh/hour
+            self.results.contract_amount_hour = self.results.contract_amount  # Convert to GWh/hour
         self.results.capture_price = self.data.Capture_price_L_avg
 
         # Save their 'actual' values based on the true distribution 
@@ -672,6 +671,8 @@ class ContractNegotiation:
         else:
             #self._save_results()
             #BS = Barter_Set(self.data,self.results,self.scipy_results)
+            #BS.Plotting_Barter_Set()
+
             #self.scipy_optimization()
             #self.scipy_display_results()
             #self.manual_optimization(plot=True)

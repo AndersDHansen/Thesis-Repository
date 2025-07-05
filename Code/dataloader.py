@@ -76,6 +76,16 @@ class InputData:
             self.TIME = list(range(self.price_true.shape[0]))
             # Equal probability for all scenarios
             self.PROB = np.ones(self.price_true.shape[1]) / self.price_true.shape[1]
+
+        # Set Maxmimum Strike Price for contracts 
+
+        # 1.1 * Capture Price of Load 
+        Capture_price_L = self.price_true * self.load_CR
+        Capture_price_h_L = Capture_price_L 
+        Capture_price_L_avg = Capture_price_h_L.mean().mean()
+
+        self.strikeprice_max = Capture_price_L_avg * 1.1
+
         
         return self
 
@@ -102,10 +112,10 @@ def load_data(time_horizon: int, num_scenarios: int, A_G: float, A_L: float, Bet
     hours_in_year = 8760
     # Contract parameters
     retail_price = 0*1e-3 # EUR/MWh
-    strikeprice_min = 20 *1e-3  # EUR/MWh # use lcoe for onshore widn (Average LCOE of Onshore Lazard , can try higher like 86, find upper gap)
-    strikeprice_max = 70 *1e-3 # EUR/MWh # what would be a good maximum value?
+    strikeprice_min = 40 *1e-3  # EUR/MWh # use lcoe for onshore widn (Average LCOE of Onshore Lazard , can try higher like 86, find upper gap)
+    strikeprice_max = 120 *1e-3 # EUR/MWh # what would be a good maximum value?
     contract_amount_min = 0
-    contract_amount_max = generator_contract_capacity  * hours_in_year *1e-3 # GWH/year
+    contract_amount_max = generator_contract_capacity  * hours_in_year *1e-3  # GWH/year
     gamma_max = 1  # Maximum contract (relevant for PAP contracts)
 
     # Risk parameters

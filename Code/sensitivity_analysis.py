@@ -11,15 +11,21 @@ def run_capture_price_analysis(input_data_base):
     """Performs sensitivity analysis on capture price value from simulations."""
     current_input_data = copy.deepcopy(input_data_base)
 
-    Capture_price_G = current_input_data.price_true * current_input_data.capture_rate
-    Capture_price_h_G = Capture_price_G 
-    Capture_price_G_avg = Capture_price_h_G.mean().mean()
-    # Set constraints for strike pices equal to the capture price of the generator
-    current_input_data.strikeprice_max = Capture_price_G_avg
-    current_input_data.strikeprice_min = Capture_price_G_avg  # Set a minimum strike price at 80% of average capture price
+    if current_input_data.contract_type == "PAP":
+        Capture_price_G = current_input_data.price_true * current_input_data.capture_rate
+        Capture_price_h_G = Capture_price_G 
+        avg_price = Capture_price_h_G.mean().mean()
+        # Set constraints for strike pices equal to the capture price of the generator
+        current_input_data.strikeprice_max = avg_price
+        current_input_data.strikeprice_min = avg_price  # Set a minimum strike price at 80% of average capture price
+    else:
+        avg_price = current_input_data.price_true.mean().mean()
+        current_input_data.strikeprice_max = avg_price
+        current_input_data.strikeprice_min = avg_price  # Set Average price as the comparison case - since that is the 'base price'
+    
         
         # Use a fresh copy for each iteration
-    print(f"\n--- Starting Capture Price Sensitivity Analysis with Capture Price = {Capture_price_G_avg} ---")
+    print(f"\n--- Starting Capture Price Sensitivity Analysis with Capture Price = {avg_price} ---")
     try:
         
         contract_model = ContractNegotiation(current_input_data)
@@ -28,7 +34,7 @@ def run_capture_price_analysis(input_data_base):
         
         # Create base result dictionary
         result_dict = {
-            'Capture_Price': [Capture_price_G_avg],
+            'Capture_Price': [avg_price],
             'StrikePrice': [contract_model.results.strike_price],
             'A_G': [current_input_data.A_G],
             'A_L': [current_input_data.A_L],
@@ -61,9 +67,9 @@ def run_capture_price_analysis(input_data_base):
 
         
     except Exception as e:
-        print(f"Error for capture rate multiplier={Capture_price_G_avg}: {str(e)}")
+        print(f"Error for capture rate multiplier={avg_price}: {str(e)}")
         result_dict = {
-            'CaptureRate_Change': [Capture_price_G_avg],
+            'CaptureRate_Change': [avg_price],
             'Avg_G_Capture_Rate': [np.nan],
             'A_G': [current_input_data.A_G],
             'A_L': [current_input_data.A_L],
