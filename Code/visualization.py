@@ -20,25 +20,30 @@ class Plotting_Class:
     """
     Handles plotting of results from the power system contract negotiation simulation.
     """
-    def __init__(self, contract_model_data, risk_sensitivity_df, sensitivity_earnings_df, 
-                 bias_sensitivity_df,capture_rate_sensitivity_df, production_sensitivity_df,
+    def __init__(self, contract_model_data, CP_results_df, CP_earnings_df,
+                 risk_sensitivity_df, risk_earnings_df, 
+                 bias_sensitivity_df, price_sensitivity_df, production_sensitivity_df,load_sensitivity_df,
+                 gen_CR_sensitivity_df, load_CR_sensitivity_df,
                  boundary_results_df, negotiation_sensitivity_df,negotiation_earnings_df,
-                 alpha_sensitivity_df,alpha_earnings_df,
+                 load_ratio_df,
                  styles=None):
         self.cm_data = contract_model_data
+        self.CP_results_df = CP_results_df
+        self.CP_earnings_df = CP_earnings_df
         self.risk_sensitivity_df = risk_sensitivity_df
-        self.earnings_risk_sensitivity_df = sensitivity_earnings_df
+        self.earnings_risk_sensitivity_df = risk_earnings_df
         self.bias_sensitivity_df = bias_sensitivity_df
+        self.price_sensitivity_df = price_sensitivity_df
         self.production_sensitivity_df = production_sensitivity_df
-        self.capture_rate_sensitivity_results = capture_rate_sensitivity_df
+        self.load_sensitivity_df = load_sensitivity_df
+        self.load_CR_sensitivity_df = load_CR_sensitivity_df
+        self.gen_CR_sensitivity_results = gen_CR_sensitivity_df
         self.boundary_results = boundary_results_df
         self.negotiation_sensitivity_df = negotiation_sensitivity_df
         self.negotiation_earnings_df = negotiation_earnings_df
-        self.alpha_sensitivity_df = alpha_sensitivity_df
-        self.alpha_earnings_df = alpha_earnings_df
-        self.styles = styles if styles else {}
-        self.white_cmap = LinearSegmentedColormap.from_list("white_cmap", ["white", "#F8F8F8"])
-
+        self.load_ratio_df = load_ratio_df
+        #self.alpha_sensitivity_df = alpha_sensitivity_df
+        #self.alpha_earnings_df = alpha_earnings_df
 
         self.plots_dir = os.path.join(os.path.dirname(__file__), 'Plots')
         os.makedirs(self.plots_dir, exist_ok=True)
@@ -197,14 +202,12 @@ class Plotting_Class:
                 'param_col': 'Beta_L',
                 'xlabel': 'Load Negotiation Power $\\beta_L$',
                 'title': 'Negotiation Power Sensitivity on Strike Price and Contract Amount'
-            },
-            'alpha': {
-                'df': self.alpha_sensitivity_df,
-                'param_col': 'alpha',  # Use the single alpha column
-                'xlabel': 'CVaR Alpha $\\alpha$',
-                'title': 'CVaR Alpha Sensitivity on Strike Price and Contract Amount'
             }
-        }
+            }
+        
+        # Calculate Capture Price
+        Capture_price = self.cm_data.Capture_price_L_avg *1e3 # Convert to EUR/MWh
+            
 
         cfg = config[sensitivity_type]
         results_df = cfg['df']
@@ -293,7 +296,10 @@ class Plotting_Class:
             ax.set_ylabel(f'{title} ({unit})')
             ax.set_title(title)
             ax.grid(True, alpha=0.3)
-
+            ax.set_xlim(-0.05, 1.1)
+            ax.set_ylim(results_sorted[metric].min()*0.8, results_sorted[metric].max() * 1.2)
+        axes[0].axhline(Capture_price, color='black', linestyle='--', label='Capture Price')
+        
         fig.suptitle(f'{self.cm_data.contract_type}: {cfg["title"]}', fontsize=16)
         plt.tight_layout()
 
@@ -686,144 +692,82 @@ class Plotting_Class:
             plt.close(fig1)
         else:
             plt.show()
-    def _plot_capture_rate_sensitivity(self, filename=None):
-        """Plot capture rate sensitivity analysis results with improved visualizations."""
-        # Check if capture rate sensitivity results are available
-        if not hasattr(self, 'capture_rate_sensitivity_results') or self.capture_rate_sensitivity_results is None:
-            print("No capture rate sensitivity results available to plot.")
-            return
-        
-        df = self.capture_rate_sensitivity_results
-        
-        # Create figure with subplots - use a 2x3 grid for more detailed analysis
-        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-        fig.suptitle(f'{self.cm_data.contract_type}: Contract Parameters Sensitivity to Capture Rate $A_G$ = {self.cm_data.A_G}, $A_L$  = {self.cm_data.A_L}', fontsize=16)
-        
-        # Flatten axes for easier iteration
-        axes = axes.flatten()
-        # Plot strike price vs capture rate factor
-        x_column = 'CaptureRate'
-        
-        axes[0].plot(df[x_column], df['StrikePrice'], marker='o', linestyle='-')
-        axes[0].set_xlabel('Capture Rate (%)')
-        axes[0].set_ylabel('Strike Price (EUR/MWh)')
-        axes[0].set_title('Strike Price vs Capture Rate')
-        axes[0].grid(True)
-        
-        # Plot contract amount vs capture rate
-        axes[1].plot(df[x_column], df['ContractAmount'], marker='o', linestyle='-')
-        axes[1].set_xlabel('Capture Rate (%)')
-        axes[1].set_ylabel('Contract Amount (MWh)')
-        axes[1].set_title('Contract Amount vs Capture Rate')
-        axes[1].yaxis.set_major_formatter(plt.FormatStrFormatter('%.1f'))  # Format to 1 decimal place
-        if self.cm_data.contract_type == "PAP":
-            axes[1].set_ylim(25, 40)  # Adjust these values based on your specific data range
-        axes[1].grid(True)
-        
-        # Plot utility G vs capture rate
-        axes[2].plot(df[x_column], df['Utility_G'], marker='o', linestyle='-')
-        axes[2].set_xlabel('Capture Rate (%)')
-        axes[2].set_ylabel('Utility Generator')
-        axes[2].set_title('Generator Utility vs Capture Rate')
-        axes[2].grid(True)
-        
-        # Plot utility L vs capture rate
-        axes[3].plot(df[x_column], df['Utility_L'], marker='o', linestyle='-')
-        axes[3].set_xlabel('Capture Rate (%)')
-        axes[3].set_ylabel('Utility Load')
-        axes[3].set_title('Load Utility vs Capture Rate')
-        axes[3].grid(True)
-        
-        # Plot threat points vs capture rate
-        axes[4].plot(df[x_column], df['ThreatPoint_G'], marker='o', linestyle='-', label='Generator')
-        axes[4].set_xlabel('Capture Rate (%)')
-        axes[4].set_ylabel('Threat Point Value')
-        axes[4].set_title('Threat Points vs Capture Rate')
-        axes[4].grid(True)
 
-        # Plot Nash Product vs capture rate
-        axes[5].plot(df[x_column], df['Nash_Product'], marker='o', linestyle='-')
-        axes[5].set_xlabel('Production Factor (%)')
-        axes[5].set_ylabel('Nash Product')
-        axes[5].set_title('Nash Product vs Production Factor')
-        axes[5].grid(True)
+    def _plot_sensitivity(self, x_column, sensitivity_name="Sensitivity", filename=None):
+        """
+        Generalized sensitivity plot for contract parameters.
+        df: DataFrame with sensitivity results
+        x_column: str, column name for x-axis (e.g. 'Production_Change', 'CaptureRate_Change', etc.)
+        sensitivity_name: str, for plot titles (e.g. 'Production', 'Capture Rate', 'Price', etc.)
+        filename: optional, for saving the plot
+        """
+
+        if sensitivity_name == "Production":
+            df = self.production_sensitivity_df
         
-        plt.tight_layout()
-        plt.subplots_adjust(top=0.92)
+        elif sensitivity_name == "Capture Rate":
+            df = self.gen_CR_sensitivity_results
+
+        elif sensitivity_name == "Load Capture Rate":
+            df = self.load_CR_sensitivity_df
+
+        elif sensitivity_name == "Load":
+            df = self.load_sensitivity_df
         
-        if filename:
-            plt.savefig(os.path.join(self.plots_dir, filename), dpi=300, bbox_inches='tight')
-            print(f"Saved capture rate sensitivity plot to {filename}")
+        elif sensitivity_name == "Price":
+            df = self.price_sensitivity_df
+
         else:
-            plt.show()
-   
-    def _plot_production_sensitivity(self, filename=None):
-        """Plot production sensitivity analysis results with improved visualizations."""
-        # Check if production sensitivity results are available
-        if not hasattr(self, 'production_sensitivity_df') or self.production_sensitivity_df is None:
-            print("No production sensitivity results available to plot.")
-            return
-        
-        df = self.production_sensitivity_df
-        
-        # Create figure with subplots - use a 2x3 grid for more detailed analysis
-        fig, axes = plt.subplots(3, 2, figsize=(18, 12))
-        fig.suptitle(f'{self.cm_data.contract_type}: Contract Parameters Sensitivity to Production $A_G$ = {self.cm_data.A_G}, $A_L$  = {self.cm_data.A_L}', fontsize=16)
-        
-        # Flatten axes for easier iteration
+            return print("No Sensitivity Dataframe Found")
+        # Create figure with subplots - use a 2x3 grid for detailed analysis
+        fig, axes = plt.subplots(2, 2, figsize=(18, 12))
+        fig.suptitle(
+            f'{self.cm_data.contract_type}: Contract Parameters Sensitivity to {sensitivity_name} $A_G$ = {self.cm_data.A_G}, $A_L$ = {self.cm_data.A_L}',
+            fontsize=16
+        )
         axes = axes.flatten()
-        
-        # Plot strike price vs production factor
-        x_column = 'ProductionFactor' 
-        
-        axes[0].plot(df[x_column], df['StrikePrice'], marker='o', linestyle='-')
-        axes[0].set_xlabel('Production Factor (%)')
-        axes[0].set_ylabel('Strike Price (EUR/MWh)')
-        axes[0].set_title('Strike Price vs Production Factor')
-        axes[0].grid(True)
-        
-        # Plot contract amount vs production factor
-        if self.cm_data.contract_type == "PAP":
-            axes[1].set_ylim(25, 40)  # Adjust these values based on your specific data range
-        axes[1].plot(df[x_column], df['ContractAmount'], marker='o', linestyle='-')
-        axes[1].set_xlabel('Production Factor (%)')
-        axes[1].set_ylabel('Contract Amount (MWh)')
-        axes[1].set_title('Contract Amount vs Production Factor')
-        axes[1].yaxis.set_major_formatter(plt.FormatStrFormatter('%.1f'))  # Format to 1 decimal place
-        axes[1].grid(True)
-        
-        # Plot utility G vs production factor
-        axes[2].plot(df[x_column], df['Utility_G'], marker='o', linestyle='-')
-        axes[2].set_xlabel('Production Factor (%)')
-        axes[2].set_ylabel('Utility Generator')
-        axes[2].set_title('Generator Utility vs Production Factor')
-        axes[2].grid(True)
 
-        axes[3].plot(df[x_column], df['Utility_L'], marker='o', linestyle='-')
-        axes[3].set_xlabel('Production Factor (%)')
+        # Plot Strike Price
+        axes[0].plot(df[x_column], df['StrikePrice'], marker='o', linestyle='-')
+        axes[0].set_xlabel(f'{x_column} (%)')
+        axes[0].set_ylabel('Strike Price (EUR/MWh)')
+        axes[0].set_title(f'Strike Price vs {sensitivity_name}')
+        axes[0].grid(True)
+
+        # Plot Contract Amount
+        if self.cm_data.contract_type == "PAP":
+            axes[1].set_ylim(25, 40)
+        axes[1].plot(df[x_column], df['ContractAmount'], marker='o', linestyle='-')
+        axes[1].set_xlabel(f'{x_column} (%)')
+        axes[1].set_ylabel('Contract Amount (MWh)')
+        axes[1].set_title(f'Contract Amount vs {sensitivity_name}')
+        axes[1].yaxis.set_major_formatter(plt.FormatStrFormatter('%.1f'))
+        axes[1].grid(True)
+
+        # Plot Utility G
+        axes[2].plot(df[x_column], df['Utility_G'], marker='o', linestyle='-', label='Utility Generator')
+        axes[2].plot(df[x_column], df['ThreatPoint_G'], marker='o', linestyle='-', label='Threat Point Generator')
+        axes[2].set_xlabel(f'{x_column} (%)')
+        axes[2].set_ylabel('Utility Generator')
+        axes[2].set_title(f'Generator Utility vs {sensitivity_name}')
+        axes[2].grid(True)
+        axes[2].legend()
+
+        # Plot Utility L
+        axes[3].plot(df[x_column], df['Utility_L'], marker='o', linestyle='-', label='Utility Load')
+        axes[3].plot(df[x_column], df['ThreatPoint_L'], marker='o', linestyle='-', label='Threat Point Load')
+        axes[3].set_xlabel(f'{x_column} (%)')
         axes[3].set_ylabel('Utility Load')
-        axes[3].set_title('Load Utility vs Production Factor')
+        axes[3].set_title(f'Load Utility & Threatpoint vs {sensitivity_name}')
         axes[3].grid(True)
-        # Plot threat points vs production factor
-        axes[4].plot(df[x_column], df['ThreatPoint_G'], marker='o', linestyle='-', label='Generator')
-        axes[4].set_xlabel('Production Factor (%)')
-        axes[4].set_ylabel('Threat Point Value')
-        axes[4].set_title('Threat Points vs Production Factor')
-        axes[4].grid(True)
-        
-        # Plot Nash Product vs production factor
-        axes[5].plot(df[x_column], df['Nash_Product'], marker='o', linestyle='-')
-        axes[5].set_xlabel('Production Factor (%)')
-        axes[5].set_ylabel('Nash Product')
-        axes[5].set_title('Nash Product vs Production Factor')
-        axes[5].grid(True)
+        axes[3].legend()
 
         plt.tight_layout()
         plt.subplots_adjust(top=0.92)
-        
+
         if filename:
             plt.savefig(os.path.join(self.plots_dir, filename), dpi=300, bbox_inches='tight')
-            print(f"Saved capture rate sensitivity plot to {filename}")
+            print(f"Saved {sensitivity_name.lower()} sensitivity plot to {filename}")
         else:
             plt.show()
 
@@ -1070,12 +1014,18 @@ class Plotting_Class:
             'A_L': 'No Contract'  # Assign a string label for the category
         })
 
-        capture_color = "#5E9AA2BC"  # Color for capture price
+        #Prepare Capture Price Data
+        CP_df = pd.DataFrame({
+            'Revenue_G': self.CP_earnings_df["Revenue_G_CP"],
+            'Revenue_L': self.CP_earnings_df["Revenue_L_CP"],
+            'A_L': 'Capture Price\n& AL=0.5'  # Assign a string label for the category
+        })
+
 
         # Combine the contract and no-contract data
         # Convert A_L to object type to allow mixing numbers and strings
-        filtered_results['A_L'] = filtered_results['A_L'].astype(object)
-        plot_data = pd.concat([no_contract_df,filtered_results], ignore_index=True)
+        filtered_results['A_L'] = filtered_results['A_L'].astype(str)
+        plot_data = pd.concat([no_contract_df,CP_df,filtered_results], ignore_index=True)
             
         # Define the order for the x-axis categories
         A_L_to_plot = sorted(A_L_to_plot)
@@ -1119,7 +1069,7 @@ class Plotting_Class:
             palette="Set2"
         )
         ### add capture price
-
+        """
         sns.violinplot(
             data=plot_data,
             x='A_L',
@@ -1145,6 +1095,7 @@ class Plotting_Class:
             showfliers=True,
             color = capture_color,
         )
+        """
 
 
 
@@ -1183,7 +1134,7 @@ class Plotting_Class:
         )
 
         # Add Capture Price 
-
+        """
         sns.violinplot(
             data=plot_data[contract_mask],
             x='A_L',
@@ -1210,6 +1161,7 @@ class Plotting_Class:
             showfliers=True,
             color = capture_color,
         )
+        """ 
         
         """
         # 6. Calculate and display percentage changes between risk aversion levels
@@ -1242,8 +1194,6 @@ class Plotting_Class:
         """
 
         # Add threatpoint lins 
-        ax_G.axhline(self.cm_data.Zeta_G , linestyle="--", color='black', label=f"Threat Point: {self.cm_data.Zeta_G :.2f}")
-        ax_L.axhline(self.cm_data.Zeta_L , linestyle="--", color='black', label=f"Threat Point: {self.cm_data.Zeta_L :.2f}")
         # Add Expectation of no contract earnings
         ax_G.axhline(self.cm_data.net_earnings_no_contract_true_G.mean(), linestyle="--", color='grey', label=f"No Contract - Average Earnings: {self.cm_data.net_earnings_no_contract_true_G.mean() :.2f} ")
         ax_L.axhline(self.cm_data.net_earnings_no_contract_true_L.mean(), linestyle="--", color='grey', label=f"No Contract - Average Earnings: {self.cm_data.net_earnings_no_contract_true_L.mean() :.2f} ")
@@ -1253,16 +1203,13 @@ class Plotting_Class:
         ax_G.set_xlabel('Risk Aversion Level $(A_L)$',fontsize=13)
         ax_G.set_ylabel('Generator Revenue (Mio EUR)',fontsize=13)
         ax_G.grid(True, linestyle='--', alpha=0.9, axis='y')
+        ax_G.legend(loc='upper left', fontsize=10, framealpha=0.8)
         
         ax_L.set_title(f'Load Revenue',fontsize=14)
         ax_L.set_xlabel('Risk Aversion Level $(A_L)$', fontsize=13)
         ax_L.set_ylabel('Load Revenue (Mio EUR)',fontsize=13)
         ax_L.grid(True, linestyle='--', alpha=0.9, axis='y')
-
-
-        cp_color_patch = mpatches.Patch(color=capture_color, label="Capture Price")
-        ax_G.legend(handles=[cp_color_patch], loc='upper left', fontsize=11, frameon=True)
-        ax_L.legend(handles=[cp_color_patch], loc='upper left', fontsize=11, frameon=True)
+        ax_L.legend(loc='upper left', fontsize=10, framealpha=0.8)
 
         plt.suptitle(f"{self.cm_data.contract_type}: Earnings Distribution by Risk Aversion, $A_G$ = {self.cm_data.A_G}", fontsize=16)
         
@@ -1291,7 +1238,7 @@ class Plotting_Class:
         unique_beta_g = earnings_df["Beta_G"].unique()
 
         # Get three evenly spaced positions
-        positions = np.linspace(1, len(unique_beta_g)-1,2,dtype=int)
+        positions = np.linspace(1, len(unique_beta_g)-1,4,dtype=int)
         selected_beta_g = np.round(unique_beta_g[positions],2)
 
         # Filter the DataFrame for these Beta_G values
@@ -1310,10 +1257,16 @@ class Plotting_Class:
             'Beta_G': 'No Contract'  # Assign a string label for the category
         })
 
+        CP_df = pd.DataFrame({
+            'Revenue_G': self.CP_earnings_df["Revenue_G_CP"],
+            'Revenue_L': self.CP_earnings_df["Revenue_L_CP"],
+            'Beta_G': 'Capture Price'  # Assign a string label for the category
+        })
+
         # Combine the contract and no-contract data
         # Convert A_L to object type to allow mixing numbers and strings
         df_filtered= df_filtered.astype(object)
-        plot_data = pd.concat([no_contract_df,df_filtered], ignore_index=True)
+        plot_data = pd.concat([no_contract_df,CP_df,df_filtered], ignore_index=True)
             
         # Define the order for the x-axis categories
         nego_to_plot = sorted(selected_beta_g)
@@ -1440,7 +1393,6 @@ class Plotting_Class:
         else:
             plt.show()
 
-
     def _plot_parameter_sensitivity_spider(self, filename=None):
         """
         Create a spider/radar plot showing how different parameters affect contract outcomes.
@@ -1452,9 +1404,9 @@ class Plotting_Class:
 
         # Define the metrics we want to compare
         if self.cm_data.contract_type == "PAP":
-            metrics = ['StrikePrice', 'Gamma', 'Utility_G', 'Utility_L', 'ThreatPoint_G', 'ThreatPoint_L', 'Nash_Product']
+            metrics = ['StrikePrice', 'Gamma', 'Utility_G', 'Utility_L', 'ThreatPoint_G', 'ThreatPoint_L']
         else:
-            metrics = ['StrikePrice', 'ContractAmount', 'Utility_G', 'Utility_L', 'ThreatPoint_G', 'ThreatPoint_L', 'Nash_Product']
+            metrics = ['StrikePrice', 'ContractAmount', 'Utility_G', 'Utility_L', 'ThreatPoint_G', 'ThreatPoint_L']
         
         
         
@@ -1472,33 +1424,35 @@ class Plotting_Class:
         
         # Define the sensitivity analyses to process
         sensitivity_analyses = [
+            
             {
                 'name': 'Production',
                 'df': self.production_sensitivity_df,
-                'factor_col': 'ProductionFactor'
+                'factor_col': 'Production_Change',
             },
             {
-                'name': 'Capture Rate',
-                'df': self.capture_rate_sensitivity_results,
-                'factor_col': 'CaptureRate'
+                'name': 'Prod. Capture Rate',
+                'df': self.gen_CR_sensitivity_results,
+                'factor_col': 'CaptureRate_Change',
             },
             {
-                'name': 'Negotation Power',
-                'df': self.negotiation_sensitivity_df,
-                'factor_col': 'Beta_G'
+                'name': 'Load. Capture Rate',
+                'df': self.load_CR_sensitivity_df,
+                'factor_col': 'Load_CaptureRate_Change'
             },
             {
-                'name': 'Price Sensitivity (KG Factor)',
-                'df': bias_KG,
-                'factor_col': 'KG_Factor'
+                'name': 'Load Sensitivity',
+                'df': self.load_sensitivity_df,
+                'factor_col': 'Load_Change',
+            },
+           
 
-            },
             {
-                'name': 'Price Sensitivity (KL Factor)',
-                'df': bias_KL,
-                'factor_col': 'KL_Factor'
-
-            },
+                'name': 'Price Sensitivity (Uniform)',
+                'df': self.price_sensitivity_df,
+                'factor_col': 'Price_Change',
+                
+                }
           
         ]
         
@@ -1520,7 +1474,7 @@ class Plotting_Class:
          
             # Store the results for this analysis
             elasticity_df.dropna(inplace=True)  # Drop rows with NaN values
-            elasticity_df = elasticity_df.mean().round(4)#.to_frame().T  # Convert to DataFrame
+            elasticity_df = elasticity_df.mean().round(3)#.to_frame().T  # Convert to DataFrame
             elasticities[analysis['name']] = elasticity_df.to_dict()
         
         # You could add more parameter elasticities here (risk aversion, bias, etc.)
@@ -1548,24 +1502,22 @@ class Plotting_Class:
 
         
         # Draw one axis per variable and add labels
-        plt.xticks(angles[:-1], categories, size=12)
-        
+        plt.xticks(angles[:-1], [f"${cat}$" for cat in categories], size=12)        
         # Set y limits
-        ax.set_ylim(-1, 1.5)
+        ax.set_ylim(-1, 1.25)
         
         # Add parameter elasticities
-        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
         
         for i, (param, values) in enumerate(elasticities.items()):
             values_ordered = [values[metric] for metric in categories]
             values_ordered += values_ordered[:1]  # Close the loop
             
             ax.plot(angles, values_ordered, linewidth=2, linestyle='solid', 
-                    label=param, color=colors[i % len(colors)])
-            ax.fill(angles, values_ordered, alpha=0.1, color=colors[i % len(colors)])
+                    label=f"${param}$")
+            ax.fill(angles, values_ordered, alpha=0.1,)
         
         # Add legend
-        plt.legend(loc='upper right', bbox_to_anchor=(0.1, 0.1))
+        plt.legend(loc='upper left')
         
         # Add title
         plt.title(f'{self.cm_data.contract_type}: Parameter Sensitivity Comparison Elaticities by Factor', 
@@ -1586,16 +1538,21 @@ class Plotting_Class:
         else:
             plt.show()
 
-    def _plot_elasticity_tornado(self, metric='StrikePrice', filename=None):
+    def _plot_elasticity_tornado(self, metrics='StrikePrice', filename=None):
         """
         Create a tornado plot showing the elasticity of a single metric
         with respect to different input factors.
         """
+
+        if isinstance(metrics, str):
+            metrics = [metrics]
+
+
         # Prepare the same elasticities as in the spider plot
-        if self.cm_data.contract_type == "PAP":
-            metrics = ['StrikePrice', 'Gamma', 'Utility_G', 'Utility_L', 'ThreatPoint_G', 'ThreatPoint_L']
-        else:
-            metrics = ['StrikePrice', 'ContractAmount', 'Utility_G', 'Utility_L', 'ThreatPoint_G', 'ThreatPoint_L']
+        #if self.cm_data.contract_type == "PAP":
+        #    metrics = ['StrikePrice', 'Gamma', 'Utility_G', 'Utility_L', 'ThreatPoint_G', 'ThreatPoint_L']
+        #else:
+        #    metrics = ['StrikePrice', 'ContractAmount', 'Utility_G', 'Utility_L', 'ThreatPoint_G', 'ThreatPoint_L']
 
         # Prepare bias data as in spider plot
         bias_sensitivity_df = self.bias_sensitivity_df.copy()
@@ -1605,64 +1562,123 @@ class Plotting_Class:
         bias_KL = bias_sensitivity_df[bias_sensitivity_df['KG_Factor'] == 1.00]
 
         # Define the sensitivity analyses to process
+        # Define the sensitivity analyses to process
         sensitivity_analyses = [
+            
             {
                 'name': 'Production',
                 'df': self.production_sensitivity_df,
-                'factor_col': 'ProductionFactor'
+                'factor_col': 'Production_Change',
             },
             {
-                'name': 'Capture Rate',
-                'df': self.capture_rate_sensitivity_results,
-                'factor_col': 'CaptureRate'
+                'name': 'Prod. Capture Rate',
+                'df': self.gen_CR_sensitivity_results,
+                'factor_col': 'CaptureRate_Change',
             },
             {
-                'name': 'Negotiation Power',
-                'df': self.negotiation_sensitivity_df,
-                'factor_col': 'Beta_G'
+                'name': 'Load. Capture Rate',
+                'df': self.load_CR_sensitivity_df,
+                'factor_col': 'Load_CaptureRate_Change'
             },
             {
-                'name': 'Price Sensitivity (KG Factor)',
+                'name': 'Load Sensitivity',
+                'df': self.load_sensitivity_df,
+                'factor_col': 'Load_Change',
+            },
+            {
+                'name': 'Price Sensitivity (Bias G)',
                 'df': bias_KG,
-                'factor_col': 'KG_Factor'
+                'factor_col': 'KG_Factor',
+
             },
             {
-                'name': 'Price Sensitivity (KL Factor)',
+                'name': 'Price Sensitivity (Bias L)',
                 'df': bias_KL,
-                'factor_col': 'KL_Factor'
+                'factor_col': 'KL_Factor',
+
             },
+
+            {
+                'name': 'Price Sensitivity (Uniform)',
+                'df': self.price_sensitivity_df,
+                'factor_col': 'Price_Change',
+                
+            }
+          
         ]
 
-        elasticities = {}
-        for analysis in sensitivity_analyses:
-            df = analysis['df']
-            df = df.sort_values(analysis['factor_col']).reset_index(drop=True)
-            pct_change_metric = df[metric].pct_change()
-            pct_change_factor = df[analysis['factor_col']].pct_change()
-            elasticity = pct_change_metric.div(pct_change_factor, axis=0)
-            elasticities[analysis['name']] = elasticity
+        n_metrics = len(metrics)
+        ncols = int(np.ceil(np.sqrt(n_metrics)))
+        nrows = int(np.ceil(n_metrics / ncols))
 
-        # Prepare data for plotting
-        factors = list(elasticities.keys())
-        values = [elasticities[f] for f in factors]
-        sorted_indices = np.argsort(np.abs(values))[::-1]
-        sorted_factors = [factors[i] for i in sorted_indices]
-        sorted_values = [values[i] for i in sorted_indices]
+        fig, axes = plt.subplots(nrows, ncols, figsize=(8 * ncols, 5 * nrows))
+        axes = axes.flatten()  # Flatten for easy indexing
 
-        # Plot tornado
-        plt.figure(figsize=(8, 5))
-        bars = plt.barh(sorted_factors, sorted_values, color='skyblue')
-        plt.axvline(0, color='k', linewidth=1)
-        plt.xlabel(f'Elasticity of {metric}')
-        plt.title(f'Tornado Plot: Sensitivity of {metric}')
-        plt.grid(axis='x', linestyle=':', alpha=0.7)
+        for idx, metric in enumerate(metrics):
+            elasticities = {}
+            for analysis in sensitivity_analyses:
+                df = analysis['df']
+                df = df.sort_values(analysis['factor_col']).reset_index(drop=True)
+                pct_change_metric = df[metric].pct_change()
+                pct_change_factor = df[analysis['factor_col']].pct_change()
+                elasticity = pct_change_metric.div(pct_change_factor, axis=0)
+                elasticity.dropna(inplace=True)
+                elasticity = elasticity.mean().round(2)
+                elasticities[analysis['name']] = elasticity
 
-        # Annotate bars
-        for bar in bars:
-            width = bar.get_width()
-            plt.text(width + 0.01 * np.sign(width), bar.get_y() + bar.get_height()/2,
-                    f'{width:.3f}', va='center', ha='left' if width > 0 else 'right', fontsize=10)
+            # Prepare data for plotting
+            factors = list(elasticities.keys())
+            values = [elasticities[f] for f in factors]
+            sorted_indices = np.argsort(np.abs(values))[::-1]
+            sorted_factors = [factors[i] for i in sorted_indices]
+            sorted_values = [values[i] for i in sorted_indices]
 
+            tornado_df = pd.DataFrame({
+                'Factor': sorted_factors,
+                'Elasticity': sorted_values
+            })
+
+            ax = axes[idx]
+            sns.barplot(
+                data=tornado_df,
+                y='Factor',
+                x='Elasticity',
+                orient='h',
+                color='skyblue',
+                ax=ax
+            )
+            ax.axvline(0, color='k', linewidth=1)
+            ax.set_xlabel(f'Elasticity of ${metric}$')
+            ax.set_title(f'Tornado Plot: Sensitivity of ${metric}$')
+            ax.grid(axis='x', linestyle=':', alpha=0.7)
+
+
+            for bar, value in zip(ax.patches, sorted_values):
+                width = bar.get_width()
+                y     = bar.get_y() + bar.get_height()/2
+
+                offset = 7            # points   (change to taste)
+                ha     = 'left'
+                if width < 0:         # put the label on the other side of negative bars
+                    offset = -6
+                    ha     = 'right'
+
+                txt = ax.annotate(f'{value:.3f}',
+                                xy=(width, y),                 # end of the bar
+                                xytext=(offset, 0),            # shift *offset* points
+                                textcoords='offset points',
+                                va='center',
+                                ha=ha,
+                                fontsize=9,
+                                zorder=3)
+
+       
+            xmin, xmax = ax.get_xlim()
+            span = xmax - xmin
+            ax.set_xlim(xmin - 0.05*span, xmax + 0.05*span)  
+        # Delete unused
+        for j in range(idx + 1, len(axes)):
+            fig.delaxes(axes[j])
         plt.tight_layout()
         if filename:
             filepath = os.path.join(self.plots_dir, filename)

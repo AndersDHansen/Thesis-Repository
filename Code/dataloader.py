@@ -18,6 +18,7 @@ class InputData:
         strikeprice_max: float,
         contract_amount_min: int,
         contract_amount_max: int,
+        gamma_max: float,
         A_L: float,
         A_G: float,
         Beta_L: float,
@@ -43,6 +44,7 @@ class InputData:
         self.strikeprice_max = strikeprice_max
         self.contract_amount_min = contract_amount_min
         self.contract_amount_max = contract_amount_max
+        self.gamma_max = gamma_max
         
         # Risk and price parameters
         self.A_L = A_L
@@ -104,11 +106,13 @@ def load_data(time_horizon: int, num_scenarios: int, A_G: float, A_L: float, Bet
     strikeprice_max = 70 *1e-3 # EUR/MWh # what would be a good maximum value?
     contract_amount_min = 0
     contract_amount_max = generator_contract_capacity  * hours_in_year *1e-3 # GWH/year
+    gamma_max = 1  # Maximum contract (relevant for PAP contracts)
 
     # Risk parameters
     K_L = 0  # Price bias
     K_G = 0
     alpha = 0.95
+
   
     input_data = InputData(
         TIME=TIME,
@@ -123,6 +127,7 @@ def load_data(time_horizon: int, num_scenarios: int, A_G: float, A_L: float, Bet
         strikeprice_max=strikeprice_max,
         contract_amount_min=contract_amount_min,
         contract_amount_max=contract_amount_max,
+        gamma_max=gamma_max,
         A_L=A_L,
         A_G=A_G,
         Beta_L=Beta_L,
@@ -132,6 +137,7 @@ def load_data(time_horizon: int, num_scenarios: int, A_G: float, A_L: float, Bet
         alpha=alpha,
         Barter=Barter,
         contract_type=contract_type
+
     )
 
     return input_data

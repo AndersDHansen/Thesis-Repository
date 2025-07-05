@@ -251,7 +251,7 @@ class ContractNegotiation:
         # build contract amount variables
         self.variables.gamma = self.model.addVar(
             lb=0,
-            ub=2,
+            ub=self.data.gamma_max,
             name='Proportion of production to go to PAP contract '
         )
    
@@ -397,7 +397,7 @@ class ContractNegotiation:
         
         #Contract amount constraints
         self.constraints.gamma_max = self.model.addLConstr(
-           self.variables.gamma <= 2 ,  # Convert to GWh/year
+           self.variables.gamma <= self.data.gamma_max ,  # Convert to GWh/year
             name='Contract Amount Constraint Max'
         )
          #Contract amount constraints
@@ -676,10 +676,10 @@ class ContractNegotiation:
             #self.scipy_display_results()
             #self.manual_optimization(plot=True)
             #self.batch_manual_optimization(A_G_values= [0.0,0.5,0.9],A_L_values=[0.0])
-            BS = Barter_Set(self.data,self.results,self.scipy_results)
-            BS.Plotting_Barter_Set()
+            #BS = Barter_Set(self.data,self.results,self.scipy_results)
+            #BS.Plotting_Barter_Set()
             
-            #raise RuntimeError(f"Optimization of {self.model.ModelName} was not successful")
+            raise RuntimeError(f"Optimization of {self.model.ModelName} was not successful")
 
     def display_results(self):
         """Display optimization results."""

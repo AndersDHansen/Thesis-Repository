@@ -626,9 +626,9 @@ class Barter_Set:
         as functions of strike price and contract amount.
         """
         # Define grid for strike price and contract amount
-        S_grid = np.linspace(self.data.strikeprice_min, self.data.strikeprice_max, 200)
+        S_grid = np.linspace(self.data.strikeprice_min+30*1e-3, self.data.strikeprice_max, 200)
         if self.data.contract_type == "PAP":
-            M_grid = np.linspace(0, 1.4, 200)
+            M_grid = np.linspace(1, 1.2, 200)
         else:
             M_grid = np.linspace(self.data.contract_amount_min, self.data.contract_amount_max, 200)
         S_mesh, M_mesh = np.meshgrid(S_grid, M_grid)
