@@ -101,13 +101,17 @@ class Plotting_Class:
         if is_pap and has_gamma:
             units = ['€/MWh', '%,MW']
         else:
-            units = ['€/MWh', 'MWh']
+            units = ['€/MWh', 'MWh,GWh/y']
+            results['ContractAmount/year'] = results['ContractAmount'].round(2)  # Convert to MWh
+            results['ContractAmount']  = results['ContractAmount'] / self.cm_data.hours_in_year * 1e3
         titles = ['Strike Price', 'Contract Amount']
         
         fig, axes = plt.subplots(1, 2, figsize=(12, 5))
         axes = axes.flatten()
-        
-        fig.suptitle(f'{self.cm_data.contract_type}: {cfg["title"]}', fontsize=16)
+        if sensitivity_type == "bias":
+            fig.suptitle(f'{self.cm_data.contract_type}: {cfg["title"]}, $A_G$={self.cm_data.A_G},$A_L$={self.cm_data.A_L}', fontsize=16)
+        else:
+            fig.suptitle(f'{self.cm_data.contract_type}: {cfg["title"]}', fontsize=16)
         
         for i, (metric, unit, title) in enumerate(zip(metrics, units, titles)):
             ax = axes[i]
@@ -136,8 +140,7 @@ class Plotting_Class:
                         if not np.isnan(val):
                             # Get background color for text color determination
                             bg_color = plt.cm.get_cmap("cividis")(
-                                plt.Normalize()(pivot_table.values)
-                            )[i_idx, j_idx, :3]
+                                plt.Normalize()(pivot_table.values) )[i_idx, j_idx, :3]
                             
                             # Calculate luminance
                             luminance = 0.299 * bg_color[0] + 0.587 * bg_color[1] + 0.114 * bg_color[2]
@@ -161,13 +164,24 @@ class Plotting_Class:
                                     ha='center', va='center', color=text_color, fontsize=10)
                         
                             else:
+
                                 # Format the main value with units
-                                text = f"{val:.2f} {unit}"
+                                text = f"{val:.2f} MWh"
                                 
                                 # Add the main value annotation
                                 ax.text(j_idx + 0.5, i_idx + 0.5, text,
                                     ha='center', va='center', color=text_color, fontsize=10)
-                            
+
+                                if metric == 'ContractAmount':                        
+                                # Add the yearly contract value annotation just below the main value
+                                    yearly_val = results.pivot(
+                                        index=cfg['index_col'],
+                                        columns=cfg['columns_col'],
+                                        values='ContractAmount/year'
+                                    ).sort_index(ascending=False).iloc[i_idx, j_idx]
+                                    ax.text(j_idx + 0.5, i_idx + 0.63, 
+                                        f"{yearly_val:.2f} GWh/y",
+                                        ha='center', va='center', color=text_color, fontsize=10)
                             
                            
                 
@@ -213,92 +227,103 @@ class Plotting_Class:
         results_df = cfg['df']
 
         results = results_df.copy()
-        results['ContractAmount'] = results['ContractAmount'].round(2)
-
         is_pap = self.cm_data.contract_type == "PAP"
         has_gamma = 'Gamma' in results.columns
 
-        # Sort by the parameter column
-        results_sorted = results.sort_values(cfg['param_col'])
-        param_values = results_sorted[cfg['param_col']].values
+       
 
         # Metrics to plot
         metrics = ['StrikePrice', 'ContractAmount']
         if is_pap and has_gamma:
             units = ['€/MWh', 'MW']
+            capture_price_type ="(G)"
+            production_type = "MWh"
+            expected_production = self.cm_data.production.mean().mean() / self.cm_data.hours_in_year * 1e3 # IN MW 
         else:
+            results['ContractAmount/year'] = results['ContractAmount'].round(2)  # Convert to MWh
+            results['ContractAmount']  = results['ContractAmount'] / self.cm_data.hours_in_year * 1e3
             units = ['€/MWh', 'MWh']
+            capture_price_type ="(L)"
+            production_type = "GWh/y"
+            expected_production = self.cm_data.production.mean().mean() 
+         # Sort by the parameter column
+        results_sorted = results.sort_values(cfg['param_col'])
+        param_values = results_sorted[cfg['param_col']].values
+        
         titles = ['Strike Price', 'Contract Amount']
 
         fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-
+        
         for i, (metric, unit, title) in enumerate(zip(metrics, units, titles)):
             ax = axes[i]
+            ax2 = None  # Default
+
+            if metric == 'StrikePrice':
+                ax.axhline(Capture_price, color='black', linestyle='--', label=f'Capture Price {capture_price_type}')
+            else:
+                ax.axhline(expected_production, color='black', linestyle='--', label=f'Expected Production {production_type}')
+
             sns.lineplot(
-            x=param_values,
-            y=results_sorted[metric].values,
-            marker='o',
-            linewidth=2,
-            markersize=8,
-            ax=ax
+                x=param_values,
+                y=results_sorted[metric].values,
+                marker='o',
+                linewidth=2,
+                markersize=8,
+                ax=ax,
+                label=f"Contract ({metric})"
             )
 
-            last_val = None
-            for j, (x, y) in enumerate(zip(param_values, results_sorted[metric].values)):
-                if not np.isnan(y) and (last_val is None or not np.isclose(y, last_val)):
-                    ax.annotate(f'{y:.2f} {unit}',
-                                (x, y),
-                                textcoords="offset points",
-                                xytext=(0, 10),
-                                ha='center',
-                                fontsize=9,
-                                bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.8))
-                    last_val = y
-                # Add gamma annotations if applicable (PAP contract, ContractAmount)
-                
             if is_pap and has_gamma and metric == 'ContractAmount':
                 ax2 = ax.twinx()
                 gamma_values = results_sorted['Gamma'].values * 100  # Convert to percentage
                 sns.lineplot(
-                x=param_values,
-                y=gamma_values,
-                marker='s',
-                linewidth=1,
-                markersize=6,
-                color='red',
-                alpha=0.7,
-                linestyle='--',
-                ax=ax2
+                    x=param_values,
+                    y=gamma_values,
+                    marker='s',
+                    linewidth=1,
+                    markersize=6,
+                    color='red',
+                    alpha=0.7,
+                    linestyle='--',
+                    ax=ax2,
+                    label='Gamma (%)'
                 )
                 ax2.set_ylabel('Gamma (%)', color='red')
                 ax2.tick_params(axis='y', labelcolor='red')
-                """
-                last_gamma = None
-                for j, (x, gamma) in enumerate(zip(param_values, gamma_values)):
-                    if not np.isnan(gamma):
-                        if j == 0 or j == len(param_values) - 1 or (last_gamma is None or not np.isclose(gamma, last_gamma)):
-                            ax2.annotate(f'γ={gamma:.1f}%',
-                                        (x, gamma),
-                                        textcoords="offset points",
-                                        xytext=(0, -15),
-                                        ha='center',
-                                        fontsize=8,
-                                        color='red',
-                                        bbox=dict(boxstyle="round,pad=0.2", facecolor='white', alpha=0.8))
-                        last_gamma = gamma
-                """
-                # Fix y-axis if all gamma values are (almost) 100%
                 if np.allclose(gamma_values, 100, atol=1e-2):
                     ax2.set_ylim(99, 101)
-          
-        
+           
+            elif metric == 'ContractAmount':
+                ax2 = ax.twinx()
+                gamma_values = results_sorted['ContractAmount/year'].values
+                sns.lineplot(
+                    x=param_values,
+                    y=gamma_values,
+                    marker='s',
+                    linewidth=1,
+                    markersize=6,
+                    color='red',
+                    alpha=0.7,
+                    linestyle='--',
+                    ax=ax2,
+                    label='Contract (GWh/y)'
+                )
+                ax2.set_ylabel('Contract (GWh/y)', color='red')
+                ax2.tick_params(axis='y', labelcolor='red')
+
             ax.set_xlabel(cfg['xlabel'])
             ax.set_ylabel(f'{title} ({unit})')
             ax.set_title(title)
             ax.grid(True, alpha=0.3)
             ax.set_xlim(-0.05, 1.1)
-            ax.set_ylim(results_sorted[metric].min()*0.8, results_sorted[metric].max() * 1.2)
-        axes[0].axhline(Capture_price, color='black', linestyle='--', label='Capture Price')
+            ax.set_ylim(results_sorted[metric].min() * 0.8, results_sorted[metric].max() * 1.2)
+
+            
+            # Combine legends if ax2 exists
+            if ax2 is not None:
+                lines, labels = ax.get_legend_handles_labels()
+                lines2, labels2 = ax2.get_legend_handles_labels()
+                ax.legend(lines, labels,  loc="upper left", fontsize=10)
         
         fig.suptitle(f'{self.cm_data.contract_type}: {cfg["title"]}', fontsize=16)
         plt.tight_layout()
@@ -812,11 +837,11 @@ class Plotting_Class:
                      linestyle=scenario['linestyle'], 
                      linewidth=scenario['linewidth'],
                      color=scenario['color'])
-            sns.scatterplot( x = lowest_boundary[:, 0] * 100, y = lowest_boundary[:, 1] * 100, s=90, alpha=0.5)
+            sns.scatterplot( x = lowest_boundary[:, 0] * 100, y = lowest_boundary[:, 1] * 100, s=90, alpha=0.5, color =scenario['color'], edgecolor='black')
         # Add labels and formatting
-        plt.xlabel('$K_L/E^P(\lambda_\Sigma)$ (%)')
-        plt.ylabel('$K_G/E^P(\lambda_\Sigma)$ (%)')
-        plt.title(f'{self.cm_data.contract_type}: No-Contract Boundaries for Different Risk Aversion Levels')
+        plt.xlabel('$K_L/E^P(\lambda_\Sigma)$ (%)', fontsize=14)
+        plt.ylabel('$K_G/E^P(\lambda_\Sigma)$ (%)',fontsize=14)
+        plt.title(f'{self.cm_data.contract_type}: No-Contract Boundaries for Different Risk Aversion Levels',fontsize=16)
         plt.grid(True, alpha=0.3)
         plt.legend()
         plt.axhline(y=0, color='k',linewidth=2)
@@ -902,13 +927,13 @@ class Plotting_Class:
         fixed_al_scenarios = [r for r in self.boundary_results if r['scenario']['A_L'] == 0.5]
         for result in fixed_al_scenarios:
             _plot_boundary_on_axis(ax4, result)
-        ax4.set_title("Fixed Load Risk Aversion (A_L = 0.5)")
+        ax4.set_title("Fixed Load Risk Aversion (A_L = 0.5)",fontsize=15)
         ax4.legend()
         
         # Common formatting
         for ax in [ax1, ax2, ax3, ax4]:
-            ax.set_xlabel('$K_L/E^P(\lambda_\Sigma)$ (%)')
-            ax.set_ylabel('$K_G/E^P(\lambda_\Sigma)$ (%)')
+            ax.set_xlabel('$K_L/E^P(\lambda_\Sigma)$ (%)',fontsize=14)
+            ax.set_ylabel('$K_G/E^P(\lambda_\Sigma)$ (%)', fontsize=14)
             ax.grid(True, alpha=0.3)
             ax.set_xlim(-30, 30)
             ax.set_ylim(-30, 30)
@@ -918,7 +943,7 @@ class Plotting_Class:
         plt.tight_layout()
         plt.subplots_adjust(top=0.92)
 
-        fig.suptitle(f'{self.cm_data.contract_type}: No-Contract Boundaries', fontsize=16)
+        fig.suptitle(f'{self.cm_data.contract_type}: No-Contract Boundaries', fontsize=17)
         
         if filename:
             plt.savefig(filename, dpi=300, bbox_inches='tight')
@@ -1463,6 +1488,8 @@ class Plotting_Class:
             
              # Sort by factor column to ensure correct order for pct_change
             df = df.sort_values(analysis['factor_col']).reset_index(drop=True)
+            df.dropna(inplace=True)  # Ensure no NaN values for pct_change calculations
+
             
             # Calculate percentage change for metrics and the factor column
             pct_change_metrics  =df[metrics].pct_change()
@@ -1619,6 +1646,7 @@ class Plotting_Class:
             for analysis in sensitivity_analyses:
                 df = analysis['df']
                 df = df.sort_values(analysis['factor_col']).reset_index(drop=True)
+                df.dropna(inplace=True)  # Ensure no NaN values for pct_change calculations
                 pct_change_metric = df[metric].pct_change()
                 pct_change_factor = df[analysis['factor_col']].pct_change()
                 elasticity = pct_change_metric.div(pct_change_factor, axis=0)
@@ -1648,8 +1676,10 @@ class Plotting_Class:
                 ax=ax
             )
             ax.axvline(0, color='k', linewidth=1)
-            ax.set_xlabel(f'Elasticity of ${metric}$')
-            ax.set_title(f'Tornado Plot: Sensitivity of ${metric}$')
+            ax.set_xlabel(f'Elasticity of ${metric}$',fontsize=14)
+            ax.set_xlabel(f'Factor',fontsize=14)
+
+            ax.set_title(f'Sensitivity of ${metric}$',fontsize=16)
             ax.grid(axis='x', linestyle=':', alpha=0.7)
 
 
@@ -1669,7 +1699,7 @@ class Plotting_Class:
                                 textcoords='offset points',
                                 va='center',
                                 ha=ha,
-                                fontsize=9,
+                                fontsize=10,
                                 zorder=3)
 
        
@@ -1680,6 +1710,7 @@ class Plotting_Class:
         for j in range(idx + 1, len(axes)):
             fig.delaxes(axes[j])
         plt.tight_layout()
+        plt.suptitle(f"Parameter Sensitivity {self.cm_data.contract_type}, $A_G$={self.cm_data.A_G},$A_L$={self.cm_data.A_L}", fontsize=16, y=1.02)
         if filename:
             filepath = os.path.join(self.plots_dir, filename)
             plt.savefig(filepath, bbox_inches='tight', dpi=300)

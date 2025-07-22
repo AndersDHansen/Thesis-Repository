@@ -12,18 +12,17 @@ def run_capture_price_analysis(input_data_base):
     current_input_data = copy.deepcopy(input_data_base)
 
     if current_input_data.contract_type == "PAP":
-        Capture_price_G = current_input_data.price_true * current_input_data.capture_rate
-        Capture_price_h_G = Capture_price_G 
-        avg_price = Capture_price_h_G.mean().mean()
+        Capture_price_G = ((current_input_data.price_true * current_input_data.capture_rate * current_input_data.production).sum()/current_input_data.production.sum()).mean()
+        avg_price = Capture_price_G
         # Set constraints for strike pices equal to the capture price of the generator
-        current_input_data.strikeprice_max = avg_price
-        current_input_data.strikeprice_min = avg_price  # Set a minimum strike price at 80% of average capture price
     else:
-        avg_price = current_input_data.price_true.mean().mean()
-        current_input_data.strikeprice_max = avg_price
-        current_input_data.strikeprice_min = avg_price  # Set Average price as the comparison case - since that is the 'base price'
+        Capture_price_L = ((current_input_data.price_true * current_input_data.load_CR * current_input_data.load_scenarios).sum()/current_input_data.load_scenarios.sum()).mean()
+
+        avg_price = Capture_price_L
+       
+    current_input_data.strikeprice_max = avg_price
+    current_input_data.strikeprice_min = avg_price  # Set Average price as the comparison case - since that is the 'base price'
     
-        
         # Use a fresh copy for each iteration
     print(f"\n--- Starting Capture Price Sensitivity Analysis with Capture Price = {avg_price} ---")
     try:

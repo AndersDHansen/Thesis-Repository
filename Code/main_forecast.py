@@ -133,10 +133,16 @@ def run_contract_negotiation(input_data: InputData):
         base_input = copy.deepcopy(original_data)
         base_input.K_G = 0.0  # Use middle value for A_G
         base_input.K_L = 0.0  # Use middle value for A
+       
         
         contract_model = ContractNegotiation(base_input)
         contract_model.run()
         base_results = copy.deepcopy(contract_model.results)
+
+        print(" Running Capture Price ...")
+        capture_price_input = copy.deepcopy(original_data)
+        #CP_sensitivity_results, CP_earnings_sensitivity = run_capture_price_analysis(capture_price_input)
+
 
         return base_results
 
@@ -213,18 +219,18 @@ def save_results_to_csv(results_dict, contract_type,time_horizon, num_scenarios)
 
  
 def main():      # Define simulation parameters
-    time_horizon = 20  # Must match the scenarios that were generated
+    time_horizon = 5  # Must match the scenarios that were generated
     num_scenarios = 1000  # Must match the scenarios that were generated
     global A_L , A_G, boundary, sensitivity , Barter
     A_L = 0.5  # Initial risk aversion
     A_G = 0.5  # Initial risk aversion    
     Beta_L = 0.5  # Asymmetry of power between load generator [0,1]
     Beta_G = 1-Beta_L  # Asymmetry of power between generation provider [0,1] - 1-beta_L
-    Barter = False  # Whether to relax the problem (Mc Cormick's relaxation)
-    contract_type = "PAP" # Either "Baseload" or "PAP"
-    sensitivity = True  # Whether to run sensitivity analysis
+    Barter = True  # Whether to relax the problem (Mc Cormick's relaxation)
+    contract_type = "Baseload" # Either "Baseload" or "PAP"
+    sensitivity = False  # Whether to run sensitivity analysis
     num_sensitivity = 6 # Number of sensitivity analysis points for Beta_L and Beta_G ( and A_G and A_L)  
-    boundary = True  # Whether to run boundary analysis ( it takes awhile to run, so set to False for quick tests)
+    boundary = False  # Whether to run boundary analysis ( it takes awhile to run, so set to False for quick tests)
     print("Loading data and preparing for simulation...")
     input_data = load_data(
         time_horizon=time_horizon,

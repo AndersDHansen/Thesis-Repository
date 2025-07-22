@@ -227,8 +227,8 @@ class ContractNegotiation:
             # Calculate SU* using Equation (28) - Maximum of the relevant terms
             self.data.SU_star_new = np.max([self.data.term1_G_new, self.data.term2_G_new, self.data.term4_L_SU_new])  
 
-            print(f"Calculated SR* using New (Eq 27) (Hourly Price [EUR/MWh]): {self.data.SR_star_new*1e3:.2f}")
-            print(f"Calculated SU* using new (Eq 28) (Hourly Price [EUR/MWh]: {self.data.SU_star_new*1e3:.2f}")
+            print(f"Calculated SR* using New (Eq 27) (Hourly Price [EUR/MWh]): {self.data.SR_star_new*1e3:.4f}")
+            print(f"Calculated SU* using new (Eq 28) (Hourly Price [EUR/MWh]: {self.data.SU_star_new*1e3:.4f}")
 
     def _build_variables_PAP(self):
 
@@ -585,7 +585,7 @@ class ContractNegotiation:
 
         else:
             self.results.contract_amount = self.variables.M.x  # Convert to GWh/year
-            self.results.contract_amount_hour = self.results.contract_amount  # Convert to GWh/hour
+            self.results.contract_amount_hour = self.results.contract_amount /8760 * 1e3  # Convert to GWh/hour
         self.results.capture_price = self.data.Capture_price_L_avg
 
         # Save their 'actual' values based on the true distribution 

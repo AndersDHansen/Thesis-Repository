@@ -187,7 +187,7 @@ def main():
     
     # Create contract model data instance (simplified)
     contract_model = ContractNegotiation(input_data)
-    contract_model.run()
+    #contract_model.run()
     
     # Create plotting class instance
     plotter = Plotting_Class(
@@ -239,7 +239,7 @@ def main():
         # Boxplot of earnings
     plotter._risk_plot_earnings_boxplot( fixed_A_G,  # Use middle value
         A_L_to_plot=params['A_L_values'].tolist(),filename=os.path.join(plots_folder, earnings_boxplot_file))
-    plotter._plot_elasticity_tornado(['StrikePrice','ContractAmount', 'Utility_G', 'Utility_L'],filename=os.path.join(plots_folder, tornando_file))
+    plotter._plot_elasticity_tornado(['StrikePrice','ContractAmount',],filename=os.path.join(plots_folder, tornando_file))
 
     plotter._nego_plot_earnings_boxplot(filename=os.path.join(plots_folder, negotation_earnings_file))
     plotter._plot_parameter_sensitivity_spider(filename=os.path.join(plots_folder, spider_file))
