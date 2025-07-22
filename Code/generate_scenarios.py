@@ -333,7 +333,7 @@ def run_scenarios(
 if __name__ == "__main__":
     # Example usage
     years =5 # 10 years
-    num_scenarios = 1000
+    num_scenarios = 30000
 
     # Wind Profile 
     csv_wind = "Code/Data/Wind/combined_wind_data.csv"  # adjust path if needed

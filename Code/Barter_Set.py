@@ -15,8 +15,13 @@ class Barter_Set:
         self.n = 1000  # Number of points for plotting
         #self.BS_strike_min = data.strikeprice_min- 20*1e-3
         #self.BS_strike_max = data.strikeprice_max+ 20*1e-3
-        self.BS_strike_min =  96.58253447927673*1e-3 - 8*1e-3
-        self.BS_strike_max =  107.03435080319473*1e-3 + 2.5*1e-4 # shoul
+
+        if self.data.contract_type == "PAP":
+            self.BS_strike_min = 25 * 1e-3
+            self.BS_strike_max = 120 * 1e-3
+        else:
+            self.BS_strike_min =  data.SR_star_new
+            self.BS_strike_max =  self.data.SU_star_new -1e-5
         print(f"{self.BS_strike_min*1e3:.4f} EUR/MWh")
         print(f"{self.BS_strike_max*1e3:.4f} EUR/MWh")
 
@@ -27,7 +32,7 @@ class Barter_Set:
         """
         Estimate gradient of CVaR with respect to contract share M (gamma) for the Load-side in PAP.
         """
-        epsilon = 1e-6
+        epsilon = dx
 
         if self.data.contract_type == "PAP":
             gamma_plus = M_base + epsilon
@@ -37,8 +42,8 @@ class Barter_Set:
             EuL = (-self.data.price_L * self.data.load_CR * self.data.load_scenarios).sum(axis=0)
 
             # Contracted revenue depends on gamma
-            con_plus = (gamma_plus * self.data.production * self.data.price_G * (self.data.capture_rate - strike)).sum(axis=0)
-            con_minus = (gamma_minus * self.data.production * self.data.price_G * (self.data.capture_rate - strike)).sum(axis=0)
+            con_plus = (gamma_plus * self.data.production * (self.data.price_G * self.data.capture_rate - strike)).sum(axis=0)
+            con_minus = (gamma_minus * self.data.production * (self.data.price_G * self.data.capture_rate - strike)).sum(axis=0)
 
             rev_plus = EuL + con_plus
             rev_minus = EuL + con_minus
@@ -58,12 +63,11 @@ class Barter_Set:
 
         return (cvar_plus - cvar_minus) / (2 * epsilon)
 
-
     def cvar_derivative_wrt_M_G(self, M_base, earnings_base, price_matrix, strike, alpha):
         """
         Estimate gradient of CVaR with respect to contract share M (gamma) for the Generator-side in PAP.
         """
-        epsilon = 1e-6
+        epsilon = dx
 
         if self.data.contract_type == "PAP":
             gamma_plus = M_base + epsilon
@@ -71,14 +75,12 @@ class Barter_Set:
 
             # Generator revenue with gamma_plus
             rev_plus = (
-                (1 - gamma_plus) * self.data.production * self.data.price_G * self.data.capture_rate
-                + gamma_plus * self.data.production * strike
+                (1 - gamma_plus) * self.data.production * self.data.price_G * self.data.capture_rate+ gamma_plus * self.data.production * strike
             ).sum(axis=0)
 
             # Generator revenue with gamma_minus
             rev_minus = (
-                (1 - gamma_minus) * self.data.production * self.data.price_G * self.data.capture_rate
-                + gamma_minus * self.data.production * strike
+                (1 - gamma_minus) * self.data.production * self.data.price_G * self.data.capture_rate + gamma_minus * self.data.production * strike
             ).sum(axis=0)
 
             cvar_plus = calculate_cvar_left(rev_plus, alpha)
@@ -100,7 +102,7 @@ class Barter_Set:
         """
         Estimate the gradient of the expected value of earnings with respect to contract volume M.
         """
-        epsilon = 1e-6
+        epsilon = dx
         if self.data.contract_type =="PAP":
         
             gamma_plus = M_base + epsilon
@@ -108,9 +110,9 @@ class Barter_Set:
 
             EuL = (-self.data.price_L * self.data.load_CR * self.data.load_scenarios).sum(axis=0) # Sum across time periods for each scenario
 
-            con_plus = (gamma_plus* self.data.production * self.data.price_L * self.data.capture_rate -  gamma_plus * strike * self.data.production).sum(axis=0) # Sum across time periods for each scenario
-            con_minus =(gamma_minus* self.data.production * self.data.price_L * self.data.capture_rate -  gamma_minus * strike * self.data.production).sum(axis=0) # Sum across time periods for each scenario
-
+            con_plus = (gamma_plus * self.data.production * (self.data.price_G * self.data.capture_rate - strike)).sum(axis=0)
+            con_minus = (gamma_minus * self.data.production * (self.data.price_G * self.data.capture_rate - strike)).sum(axis=0)
+            
             rev_plus = EuL + con_plus
             rev_minus = EuL + con_minus
             # Calculate expected earnings for M_plus and M_minus
@@ -135,7 +137,7 @@ class Barter_Set:
         """
         Estimate the gradient of the expected value of earnings with respect to contract volume M.
         """
-        epsilon = 1e-6
+        epsilon = dx
         if self.data.contract_type =="PAP":
             gamma_plus = M_base + epsilon
             gamma_minus = M_base - epsilon
@@ -224,13 +226,59 @@ class Barter_Set:
         if self.data.contract_type == "PAP":
             # For each scenario, sum over time
             EuL = (-self.data.price_L * self.data.load_CR * self.data.load_scenarios).sum(axis=0) # Sum across time periods for each scenario
-            SML =   (volume* self.data.production * self.data.price_L * self.data.capture_rate -  volume * strike * self.data.production).sum(axis=0) # Sum across time periods for each scenario
+            SML = (volume * self.data.production * (self.data.price_L * self.data.capture_rate - strike)).sum(axis=0) # Sum across time periods for each scenario
 
             pi_L = EuL + SML
         else:
             pi_L = self.data.net_earnings_no_contract_priceL_L + volume * (self.data.price_L - strike).sum(axis=0)
 
         return pi_L
+    
+    def _dS_PAP(self,S,gamma):
+        """
+        Calculate the slope of the utility curve for PAP contracts.
+        S: Strike Price
+        gamma: Contract volume (percentage)
+        """
+        pi_G = self._Revenue_G(S, gamma)
+        pi_L = self._Revenue_L(S, gamma)
+
+        mask_G = _left_tail_mask(pi_G, self.data.alpha)
+        mask_L = _left_tail_mask(pi_L, self.data.alpha)
+
+        prod = self.data.production.sum(axis=0)
+
+        tail_G = prod[mask_G].mean() if mask_G.any() else 0.0
+        tail_L = prod[mask_L].mean() if mask_L.any() else 0.0
+
+        num =  (1-self.data.A_L)*prod.mean() + self.data.A_L * tail_L
+        den =  (1-self.data.A_G)*prod.mean() + self.data.A_G * tail_G
+
+        return - num / den
+    
+    def _dgamma_PAP(self,S,gamma):
+        """
+        Calculate the slope of the utility curve for PAP contracts.
+        S: Strike Price
+        gamma: Contract volume (percentage)
+        """
+        pi_G = self._Revenue_G(S, gamma)
+        pi_L = self._Revenue_L(S, gamma)
+
+        mask_G = _left_tail_mask(pi_G, self.data.alpha)
+        mask_L = _left_tail_mask(pi_L, self.data.alpha)
+        
+        rev_G = ( self.data.production*(S-self.data.capture_rate*self.data.price_G)).sum(axis=0)
+        rev_L = ( self.data.production*(self.data.capture_rate*self.data.price_L-S)).sum(axis=0)
+
+
+        tail_G = rev_G[mask_G].mean() if mask_G.any() else 0.0
+        tail_L = rev_L[mask_L].mean() if mask_L.any() else 0.0
+
+        num =  (1-self.data.A_L) + self.data.A_L * tail_L
+        den =  (1-self.data.A_G) + self.data.A_G * tail_G
+
+        return - num / den
     
     def Plotting_Barter_Set_Lemma2(self,plotting=False):
         """
@@ -307,21 +355,36 @@ class Barter_Set:
     def calculate_utility_derivative(self, M_space, V_1_Low, V_2_High):
         # Initial slope calculations
 
+        if self.data.contract_type == "PAP":
+            dS_SR = np.zeros(self.n)
+            dS_SU = np.zeros(self.n)
+
+            for i in range(self.n):
+                dS_SR[i] = self._dS_PAP(self.BS_strike_min, M_space[i])
+                dS_SU[i] = self._dS_PAP(self.BS_strike_max, M_space[i])
+
+        global dx
         dx = M_space[1] - M_space[0]  # Step size
-        duG_1 = np.gradient(V_1_Low[:,0],M_space,edge_order=2)  
-        duL_1 = np.gradient(V_1_Low[:,1],M_space,edge_order=2)  
+        duG_1 = np.gradient(V_1_Low[:,0],dx,edge_order=1)  
+        duL_1 = np.gradient(V_1_Low[:,1],dx,edge_order=1)  
         slope_1 = duL_1 / duG_1  
         
-        duG_2 = np.gradient(V_2_High[:,0],M_space,edge_order=2)
-        duL_2 = np.gradient(V_2_High[:,1],M_space,edge_order=2)
+        duG_2 = np.gradient(V_2_High[:,0],dx,edge_order=1)
+        duL_2 = np.gradient(V_2_High[:,1],dx,edge_order=1)
         slope_2 = duL_2 / duG_2
         fig, axes = plt.subplots(1, 2, figsize=(14, 10))
         ax_1 = axes[0]
         ax_2 = axes[1]
         ax_1.plot(M_space, slope_1, label='Slope Curve 1', color='blue'  )
-        ax_1.axhline(self.dS, color='black', linestyle='--', label='dS Threshold')
+        if self.data.contract_type == "PAP":
+            ax_1.plot(M_space, dS_SR, label='dS Curve 1', color='black', linestyle='--')
+        else:
+            ax_1.axhline(self.dS, color='black', linestyle='--', label='dS Threshold')
         ax_2.plot(M_space, slope_2, label='Slope Curve 2', color='red'  )
-        ax_2.axhline(self.dS, color='black', linestyle='--', label='dS Threshold')
+        if self.data.contract_type == "PAP":
+            ax_2.plot(M_space, dS_SU, label='dS Curve 2', color='black', linestyle='--')
+        else:
+            ax_2.axhline(self.dS, color='black', linestyle='--', label='dS Threshold')
         plt.show()
 
         # Lemma 5 MR (L)
@@ -330,40 +393,61 @@ class Barter_Set:
         Egradientv1_L = self.expectation_derivative_wrt_M_L(M_space[0],self.data.net_earnings_no_contract_priceL_L, self.data.price_L, self.BS_strike_min)
         Egradientv1_G = self.expectation_derivative_wrt_M_G(M_space[0],self.data.net_earnings_no_contract_priceG_G, self.data.price_G, self.BS_strike_min)
 
-        uL_duG_theoretical_MR = ((1-self.data.A_L)*Egradientv1_L + self.data.A_L * cvgradientv1_L)/((1-self.data.A_G)*Egradientv1_G + self.data.A_G * cvgradientv1_G)
         
         # Lemma 5 MU (L )
         cvgradientv2_L =  self.cvar_derivative_wrt_M_L(M_space[-1],self.data.net_earnings_no_contract_priceL_L, self.data.price_L, self.BS_strike_min, self.data.alpha)
         cvgradientv2_G =  self.cvar_derivative_wrt_M_G(M_space[-1],self.data.net_earnings_no_contract_priceG_G, self.data.price_G, self.BS_strike_min, self.data.alpha)
         Egradientv2_L = self.expectation_derivative_wrt_M_L(M_space[-1],self.data.net_earnings_no_contract_priceL_L, self.data.price_L, self.BS_strike_min)
         Egradientv2_G = self.expectation_derivative_wrt_M_G(M_space[-1],self.data.net_earnings_no_contract_priceG_G, self.data.price_G, self.BS_strike_min)
-      
-        uL_duG_theoretical_MU = ((1-self.data.A_L)*Egradientv2_L + self.data.A_L * cvgradientv2_L)/((1-self.data.A_G)*Egradientv2_G + self.data.A_G * cvgradientv2_G)
+
+        if self.data.contract_type == "PAP":
+            uL_duG_theoretical_MR = ((1-self.data.A_L)*Egradientv1_L + self.data.A_L * cvgradientv1_L)/((1-self.data.A_G)*Egradientv1_G + self.data.A_G * cvgradientv1_G)
+            uL_duG_theoretical_MU = ((1-self.data.A_L)*Egradientv2_L + self.data.A_L * cvgradientv2_L)/((1-self.data.A_G)*Egradientv2_G + self.data.A_G * cvgradientv2_G)
+
+            test_MR = self._dgamma_PAP(self.BS_strike_min, M_space[0])
+            test_MU = self._dgamma_PAP(self.BS_strike_min, M_space[-1])
+        
+        else:
+            uL_duG_theoretical_MR = ((1-self.data.A_L)*Egradientv1_L + self.data.A_L * cvgradientv1_L)/((1-self.data.A_G)*Egradientv1_G + self.data.A_G * cvgradientv1_G)
+            uL_duG_theoretical_MU = ((1-self.data.A_L)*Egradientv2_L + self.data.A_L * cvgradientv2_L)/((1-self.data.A_G)*Egradientv2_G + self.data.A_G * cvgradientv2_G)
 
         #cond_MR = self.Condition_lemma5_MR()
         #cond_MU = self.Condition_lemma5_MU()
 
-        print(slope_1[1])
+        print(slope_1[0])
         print(uL_duG_theoretical_MR)
         print(slope_1[-1])
         print(uL_duG_theoretical_MU)
 
-    
+        print(test_MR)
+        print(test_MU)
 
-        if slope_1[0] < self.dS:
+    
+        if self.data.contract_type == "PAP":
+            self.dS_min = self._dS_PAP(self.BS_strike_min, M_space[0])
+            self.dS_max = self._dS_PAP(self.BS_strike_min, M_space[-1])
+        else:
+            self.dS_min = self.dS
+            self.dS_max = self.dS
+       
+        if slope_1[0] < self.dS_min:
             cond_MR = True
         else:
             cond_MR = False
         
-        if slope_1[-1] > self.dS:
+        if slope_1[-1] > self.dS_max:
             cond_MU = True
         else:
             cond_MU = False
 
 
         # Find first crossing points
-        mask_negative_v1 = slope_1 >= self.dS
-        mask_positive_v2 = slope_2 <= self.dS
+        if self.data.contract_type == "PAP":
+            mask_negative_v1 = slope_1 <= dS_SR
+            mask_positive_v2 = slope_2 >= dS_SU
+        else:
+            mask_negative_v1 = slope_1 <= self.dS
+            mask_positive_v2 = slope_2 >= self.dS
         first_index_negative_v1 = np.argmax(mask_negative_v1)
         first_index_positive_v2 = np.argmax(mask_positive_v2)
         M_SR = M_space[first_index_negative_v1]
@@ -410,7 +494,7 @@ class Barter_Set:
       
         if self.data.contract_type == "PAP":
             # For PAP, we need to calculate the contract amount as a percentage of production
-            M_space = np.linspace(0, 1, self.n)
+            M_space = np.linspace(0, 2, self.n)
         else:
             M_space = np.linspace(self.data.contract_amount_min, self.data.contract_amount_max, self.n)
         
@@ -425,8 +509,6 @@ class Barter_Set:
             V_2_High[i,0] = self.Utility_G(self.BS_strike_max , M_space[i]) 
             V_2_High[i,1] = self.Utility_L(self.BS_strike_max , M_space[i])
 
-            #test[i,0] = self.Utility_G(self.results.strike_price*1e-3, M_space[i])
-            #test[i,1] = self.Utility_L(self.results.strike_price*1e-3, M_space[i])
 
         #nash_product_test = (test[:,0]-self.data.Zeta_G)*(test[:,1]-self.data.Zeta_L)
         nash_product_low = (V_1_Low[:,0]-self.data.Zeta_G)*(V_1_Low[:,1]-self.data.Zeta_L)
@@ -455,17 +537,7 @@ class Barter_Set:
         for i in range(len(M_space)):            #Curve 1 
             V_CP[i,0] = self.Utility_G(CP, M_space[i]) 
             V_CP[i,1] = self.Utility_L(CP, M_space[i])
-        
-        #self.plot_utility_cvar_vs_M(strike_price=CP)
-        
-        #self.plot_utility_cvar_vs_M(SR_test)
-        #self.plot_utility_cvar_vs_M(SU_test)
-        
-
-
-        #UG_CP,UL_CP = self.Utility_G(CP,M_SR),self.Utility_L(CP,M_SR)
-        # Random Test 
-      
+     
         
         #UG_nego_upper,UL_nego_upper = self.Utility_G(negotation_upper,M_SR),self.Utility_L(negotation_upper,M_SR)
         #UG_nego_lower,UL_nego_lower = self.Utility_G(negotation_lower,M_SR),self.Utility_L(negotation_lower,M_SR)
@@ -481,9 +553,6 @@ class Barter_Set:
             # Horizontal line intersection (y = threat_point_y)
             horizontal_intersect_x = (threat_point_y - b_opt) / slope_opt
     
-        
-        #self.plot_utility_cvar_vs_M(strike_price='min')
-        #self.plot_utility_cvar_vs_M(strike_price='max')
 
         # Keeping SR constant and plotting through MR to MU (Curve 1)
         plt.figure(figsize=(10, 6))
@@ -529,6 +598,46 @@ class Barter_Set:
             if self.data.contract_type == "PAP":
                 plt.scatter(UG_Low_Mopt, UL_Low_Mopt, color='green', marker='o', s=100,    label=fr'V1 $\gamma$ = {100*M_SR:.2f}%, M* = ({self.data.generator_contract_capacity * M_SR:.2f} MW)')
                 plt.scatter(UG_High_Mopt, UL_High_Mopt, color='green', marker='*', s=150,     label=fr'V1 $\gamma$ = {100*M_SU:.2f}%, M* = ({self.data.generator_contract_capacity * M_SU:.2f} MW)')
+
+
+                # --- PARAMETERS ---------------------------------------------------------
+                n_pts   = 80                                          # resolution
+
+                # helper: utility pair for ANY (γ,S)
+                def _U_pair(gam, S):
+                    return self.Utility_G(S, gam), self.Utility_L(S, gam)
+
+                # sample strikes from SR* to SU*
+                S_span = np.linspace(self.BS_strike_min, self.BS_strike_max, n_pts)
+                UG_path, UL_path = [], []
+
+                for S_val in S_span:
+                    # quick grid search for γ*(S_val) that maximises Nash product
+                    γ_grid  = np.linspace(0.0, 1.0, 50)
+                    best_K  = -np.inf
+                    best_ug = best_ul = None
+                    for γ in γ_grid:
+                        ug, ul = _U_pair(γ, S_val)
+                        K_val  = (ug - self.data.Zeta_G)*(ul - self.data.Zeta_L)
+                        if K_val > best_K:
+                            best_K, best_ug, best_ul = K_val, ug, ul
+                    UG_path.append(best_ug)
+                    UL_path.append(best_ul)
+
+                """
+                elif method == "bezier":
+                    # simple *visual* curve: quadratic Bézier using midpoint control
+                    ctrl_x = (x1 + x2)/2
+                    ctrl_y = max(y1, y2) + 0.6*(max(y1, y2)-min(y1, y2))   # lift a bit
+                    t      = np.linspace(0, 1, n_pts)
+                    UG_path = (1-t)**2 * x1 + 2*(1-t)*t * ctrl_x + t**2 * x2
+                    UL_path = (1-t)**2 * y1 + 2*(1-t)*t * ctrl_y + t**2 * y2
+                """
+
+                # ------------------------------------------------------------------------
+                plt.plot(UG_path, UL_path,
+                        color="darkorange",  linestyle="-.", linewidth=2,
+                        label="curvilinear link")
             else:
                 plt.scatter(UG_Low_Mopt, UL_Low_Mopt, color='green', marker='o', s=100, label=f'V1 M* = ({M_SR /8760*1e3:.2f} MWh)')
                 plt.scatter(UG_High_Mopt, UL_High_Mopt, color='green', marker='*', s=150, label=f'V2 M* = ({M_SU/8760*1e3:.2f} MWh)')

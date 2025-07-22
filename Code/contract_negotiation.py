@@ -6,7 +6,7 @@ import gurobipy as gp
 import pandas as pd
 import matplotlib.pyplot as plt
 from gurobipy import GRB
-from utils import Expando, build_dataframe, calculate_cvar_left, calculate_cvar_right
+from utils import Expando, build_dataframe, calculate_cvar_left, _right_tail_mask, _left_tail_mask
 from Barter_Set import Barter_Set
 from tqdm import tqdm
 import scipy.stats as stats
@@ -202,33 +202,69 @@ class ContractNegotiation:
         
             # Using the current variables directly as the absolute K values:
     
-
-            self.data.term1_G_new =(( (1-self.data.A_G) * self.data.expected_lambda_sum_true +self.data.K_G_lambda_Sigma ) - self.data.A_G * self.data.left_Cvar_neg_lambda_sum_true)/ time_periods    # SR* numerator for Gen
+            # Method 1 - Deterministic?
+            self.data.term1_G =(( (1-self.data.A_G) * self.data.expected_lambda_sum_true +self.data.K_G_lambda_Sigma ) - self.data.A_G * self.data.left_Cvar_neg_lambda_sum_true)/ time_periods    # SR* numerator for Gen
 
             # high-price risk (feeds S_U*)
-            self.data.term2_G_new = (((1-self.data.A_G) * self.data.expected_lambda_sum_true + self.data.K_G_lambda_Sigma ) + self.data.A_G * self.data.left_cvar_lambda_sum_true) / time_periods     # SU* numerator for Gen
+            self.data.term2_G = (((1-self.data.A_G) * self.data.expected_lambda_sum_true + self.data.K_G_lambda_Sigma ) + self.data.A_G * self.data.left_cvar_lambda_sum_true) / time_periods     # SU* numerator for Gen
     
             # Load-serving entity ––––––––––––––––––––––––––––––––––––––––––––––
             # low-price risk  (feeds S_R*)
-            self.data.term3_L_SR_new = (self.data.expected_lambda_sum_true
+            self.data.term3_L_SR = (self.data.expected_lambda_sum_true
                             + self.data.A_L * self.data.left_cvar_lambda_sum_true
                             + self.data.K_L_lambda_Sigma - self.data.A_L * self.data.expected_lambda_sum_true  ) / time_periods   # SU* numerator for LSE
             # high-price risk (feeds S_U*)
-            self.data.term4_L_SU_new = ( self.data.expected_lambda_sum_true
+            self.data.term4_L_SU = ( self.data.expected_lambda_sum_true
                             - self.data.A_L * self.data.left_Cvar_neg_lambda_sum_true
                             + self.data.K_L_lambda_Sigma  - self.data.A_L * self.data.expected_lambda_sum_true )  / time_periods   # SR* numerator for LSE
 
+            # Method 2 - Stochastic 
+            mask_G = _left_tail_mask(self.data.net_earnings_no_contract_priceG_G, self.data.alpha)
+            mask_L = _left_tail_mask(self.data.net_earnings_no_contract_priceL_L, self.data.alpha)
+            neg_mask_G = _left_tail_mask(-self.data.net_earnings_no_contract_priceG_G, self.data.alpha)
+            neg_mask_L = _left_tail_mask(-self.data.net_earnings_no_contract_priceL_L, self.data.alpha)
 
+            tail_G = self.data.lambda_sum_G_per_scenario[mask_G].mean() if mask_G.any() else 0.0
+            tail_L = self.data.lambda_sum_L_per_scenario[mask_L].mean() if mask_L.any() else 0.0
+            neg_tail_G = self.data.lambda_sum_G_per_scenario[neg_mask_G].mean() if mask_G.any() else 0.0
+            neg_tail_L = self.data.lambda_sum_L_per_scenario[neg_mask_L].mean() if mask_L.any() else 0.0
+
+            self.data.term1_G_new =(( (1-self.data.A_G) * self.data.expected_lambda_sum_true +self.data.K_G_lambda_Sigma ) + self.data.A_G * neg_tail_G)/ time_periods    # SR* numerator for Gen
+
+            # high-price risk (feeds S_U*)
+            self.data.term2_G_new = (((1-self.data.A_G) * self.data.expected_lambda_sum_true + self.data.K_G_lambda_Sigma ) + self.data.A_G * tail_G) / time_periods     # SU* numerator for Gen
+
+            # Load-serving entity ––––––––––––––––––––––––––––––––––––––––––––––
+             # low-price risk (feeds S_R*)
+            self.data.term3_L_SR_new = ( self.data.expected_lambda_sum_true
+                                + self.data.A_L * neg_tail_L
+                            + self.data.K_L_lambda_Sigma  - self.data.A_L * self.data.expected_lambda_sum_true )  / time_periods   # SR* numerator for LSE
+            
+            # high-price risk  (feeds S_U*)
+            self.data.term4_L_SU_new = (self.data.expected_lambda_sum_true
+                            + self.data.A_L * tail_L
+                            + self.data.K_L_lambda_Sigma - self.data.A_L * self.data.expected_lambda_sum_true  ) / time_periods   # SU* numerator for LSE
+           
+          
 
 
             # Calculate SR* using Equation (27) - Minimum of the relevant terms
-            self.data.SR_star_new = np.min([self.data.term1_G_new, self.data.term2_G_new, self.data.term3_L_SR_new])   # Convert from $/GWh to $/MWh
+            self.data.SR_star = np.min([self.data.term1_G, self.data.term2_G, self.data.term3_L_SR])   # Convert from $/GWh to $/MWh
+            self.data.SR_star_new = np.min([self.data.term1_G_new, self.data.term2_G_new])  # Convert from $/GWh to $/MWh
 
             # Calculate SU* using Equation (28) - Maximum of the relevant terms
-            self.data.SU_star_new = np.max([self.data.term1_G_new, self.data.term2_G_new, self.data.term4_L_SU_new])  
+            self.data.SU_star = np.max([self.data.term1_G, self.data.term2_G, self.data.term4_L_SU])  
+            self.data.SU_star_new = np.max([self.data.term1_G_new, self.data.term2_G_new, self.data.term4_L_SU_new])  # Convert from $/GWh to $/MWh
 
+            print(f"Calculated SR* using New (Eq 27) (Hourly Price [EUR/MWh]): {self.data.SR_star*1e3:.4f}")
+            print(f"Calculated SU* using new (Eq 28) (Hourly Price [EUR/MWh]: {self.data.SU_star*1e3:.4f}")
+
+            
             print(f"Calculated SR* using New (Eq 27) (Hourly Price [EUR/MWh]): {self.data.SR_star_new*1e3:.4f}")
             print(f"Calculated SU* using new (Eq 28) (Hourly Price [EUR/MWh]: {self.data.SU_star_new*1e3:.4f}")
+            #self.data.strikeprice_min = self.data.SR_star_new + 1e-3  # Add a small epsilon to avoid numerical issues
+            #self.data.strikeprice_max = self.data.SR_star_new + 1e-3
+         
 
     def _build_variables_PAP(self):
 

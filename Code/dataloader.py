@@ -116,7 +116,7 @@ def load_data(time_horizon: int, num_scenarios: int, A_G: float, A_L: float, Bet
     strikeprice_max = 120 *1e-3 # EUR/MWh # what would be a good maximum value?
     contract_amount_min = 0
     contract_amount_max = generator_contract_capacity  * hours_in_year *1e-3  # GWH/year
-    gamma_max = 1  # Maximum contract (relevant for PAP contracts)
+    gamma_max = 2  # Maximum contract (relevant for PAP contracts)
 
     # Risk parameters
     K_L = 0  # Price bias

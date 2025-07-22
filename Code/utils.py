@@ -181,6 +181,12 @@ def _left_tail_mask(arr, alpha):
     
     return left_tail               # boolean mask
 
+def _right_tail_mask(arr, alpha):
+    var_threshold_lower = np.percentile(arr, (1-alpha)*100)
+    right_tail = arr >= var_threshold_lower
+
+    return right_tail               # boolean mask
+
 
 
 def optimize_nash_product(

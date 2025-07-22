@@ -37,6 +37,7 @@ def run_contract_negotiation_sensitivity(input_data: InputData,
     new_base = base_input
     new_base.K_G = 0.0  # Use middle value for A_G
     new_base.K_L = 0.0  # Use middle value for A
+
     
     contract_model = ContractNegotiation(base_input)
     contract_model.run()
@@ -227,7 +228,7 @@ def main():      # Define simulation parameters
     Beta_L = 0.5  # Asymmetry of power between load generator [0,1]
     Beta_G = 1-Beta_L  # Asymmetry of power between generation provider [0,1] - 1-beta_L
     Barter = True  # Whether to relax the problem (Mc Cormick's relaxation)
-    contract_type = "Baseload" # Either "Baseload" or "PAP"
+    contract_type = "PAP" # Either "Baseload" or "PAP"
     sensitivity = False  # Whether to run sensitivity analysis
     num_sensitivity = 6 # Number of sensitivity analysis points for Beta_L and Beta_G ( and A_G and A_L)  
     boundary = False  # Whether to run boundary analysis ( it takes awhile to run, so set to False for quick tests)
