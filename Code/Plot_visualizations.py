@@ -3,6 +3,7 @@ Run this script to visualize the results without re-runnign the entire code
 Using saved Results from the previous runs
 """
 
+from fileinput import filename
 import os
 import pandas as pd
 import numpy as np
@@ -48,8 +49,11 @@ def load_sensitivity_results(contract_type,time_horizon, num_scenarios):
 
     result_names_not_risk = [
         "capture_price_results", "capture_price_earnings_sensitivity",  # Capture price results
-        "bias_sensitivity", "price_sensitivity",   # Bias is difference between G and L in what they think price will be, price sensitivity it is uniform between
-        "production_sensitivity",'load_sensitivity',"gen_capture_rate_sensitivity", "load_capture_rate_sensitivity",
+        "price_bias_sensitivity","production_bias_sensitivity", # Price and production bias sensitivity results
+        "price_sensitivity_mean","price_sensitivity_std",   # Bias is difference between G and L in what they think price will be, price sensitivity it is uniform between
+        "production_sensitivity_mean", "production_sensitivity_std",  # Production sensitivity
+        "load_sensitivity_mean", "load_sensitivity_std",  # Load sensitivity
+        "gen_capture_rate_sensitivity", "load_capture_rate_sensitivity",
         "negotiation_power_sensitivity", "negotiation_earnings_sensitivity", "load_ratio_sensitivity" # beta results are negotation results
         ]
     
@@ -77,12 +81,14 @@ def load_sensitivity_results(contract_type,time_horizon, num_scenarios):
      
     return results
 
-def load_boundary_results(contract_type,time_horizon, num_scenarios):
+def load_boundary_results(sensitivity,contract_type,time_horizon, num_scenarios):
     """
     Load boundary results from saved JSON file.
     
     Parameters:
     -----------
+    sensitivity : str
+        Type of sensitivity analysis ("price" or "production")
     contract_type : str
         Type of contract ("PAP" or "Baseload")
     time_horizon : int
@@ -96,7 +102,7 @@ def load_boundary_results(contract_type,time_horizon, num_scenarios):
         List of dictionaries containing boundary results
     """
     # Path to JSON file
-    json_filename = f"boundary_results_{contract_type}_{time_horizon}y_{num_scenarios}.json"
+    json_filename = f"boundary_results_{sensitivity}_{contract_type}_{time_horizon}y_{num_scenarios}.json"
     json_path = os.path.join(os.path.dirname(__file__), 'Results', json_filename)
     
     try:
@@ -123,8 +129,8 @@ def load_boundary_results(contract_type,time_horizon, num_scenarios):
 def main():
     global time_horizon, num_scenarios, A_G, A_L, Beta_L, Beta_G, Barter, contract_type
     # Configuration for loading data 
-    time_horizon = 20  # Must match the scenarios that were generated
-    num_scenarios = 1000  # Must match the scenarios that were generated
+    time_horizon = 5  # Must match the scenarios that were generated
+    num_scenarios = 500  # Must match the scenarios that were generated
     A_L = 0.5  # Initial risk aversion
     A_G = 0.5  # Initial risk aversion
     Beta_L = 0.5  # Asymmetry of power between load generator [0,1]
@@ -147,10 +153,10 @@ def main():
     )    # InputData object is now created in load_data()    # Define risk aversion parameters for both objective functions
     
     params = {
-        'A_G_values': np.array([0.1,0.5,0.9]),  # A in [0,1]
-        'A_L_values': np.array([0.1,0.5,0.9])  # A in [0,1]
+        'A_G_values': np.array([0,0.05,0.1,0.25,0.5,0.75,0.9,1]),  # A in [0,1]
+        'A_L_values':np.array([0,0.05,0.1,0.25,0.5,0.75,0.9,1]),
     }
-    fixed_A_G=params['A_G_values'][1]
+    fixed_A_G=0.5 # Fixed at middle value for plotting purposes
     # Load scenarios from CSV files
     scenario_pattern = f"{{type}}_scenarios_{time_horizon}y_{num_scenarios}s.csv"
 
@@ -183,8 +189,9 @@ def main():
     sensitivity_results = load_sensitivity_results(contract_type,time_horizon, num_scenarios)
     
     # Load boundary results from JSON
-    boundary_results = load_boundary_results(contract_type,time_horizon, num_scenarios)
-    
+    boundary_results_price = load_boundary_results("price",contract_type,time_horizon, num_scenarios)
+    boundary_results_production = load_boundary_results("production",contract_type,time_horizon, num_scenarios)
+
     # Create contract model data instance (simplified)
     contract_model = ContractNegotiation(input_data)
     #contract_model.run()
@@ -196,13 +203,18 @@ def main():
         CP_earnings_df=sensitivity_results['capture_price_earnings_sensitivity'],
         risk_sensitivity_df=sensitivity_results['risk_sensitivity'],
         risk_earnings_df=sensitivity_results['risk_earnings_sensitivity'],
-        bias_sensitivity_df=sensitivity_results['bias_sensitivity'],
-        price_sensitivity_df=sensitivity_results['price_sensitivity'],
-        production_sensitivity_df=sensitivity_results['production_sensitivity'],
-        load_sensitivity_df =sensitivity_results['load_sensitivity'],
+        price_bias_sensitivity_df=sensitivity_results['price_bias_sensitivity'],
+        price_sensitivity_mean_df=sensitivity_results['price_sensitivity_mean'],
+        price_sensitivity_std_df=sensitivity_results['price_sensitivity_std'],
+        production_bias_sensitivity_df=sensitivity_results['production_bias_sensitivity'],
+        production_sensitivity_mean_df=sensitivity_results['production_sensitivity_mean'],
+        production_sensitivity_std_df=sensitivity_results['production_sensitivity_std'],
+        load_sensitivity_mean_df=sensitivity_results['load_sensitivity_mean'],
+        load_sensitivity_std_df=sensitivity_results['load_sensitivity_std'],
         gen_CR_sensitivity_df=sensitivity_results['gen_capture_rate_sensitivity'],
         load_CR_sensitivity_df=sensitivity_results['load_capture_rate_sensitivity'],
-        boundary_results_df=boundary_results,
+        boundary_results_df_price=boundary_results_price,
+        boundary_results_df_production=boundary_results_production,
         negotiation_sensitivity_df=sensitivity_results['negotiation_power_sensitivity'],
         negotiation_earnings_df=sensitivity_results['negotiation_earnings_sensitivity'],
         load_ratio_df = sensitivity_results['load_ratio_sensitivity'],
@@ -216,14 +228,20 @@ def main():
     # Generate filenames
     risk_file = f"risk_sensitivity_{contract_type}_{time_horizon}_{num_scenarios}.png"
     earnings_file = f"earnings_distribution_AG={fixed_A_G}_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    bias_file = f"bias_sensitivity_AG={A_G}_AL={A_L}{contract_type}_{time_horizon}_{num_scenarios}.png"
-    price_file = f"price_sensitivity_AG={A_G}_AL={A_L}{contract_type}_{time_horizon}_{num_scenarios}.png"
-    production_file = f"production_sensitivity_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    load_file = f"load_sensitivity_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}_{num_scenarios}.png"
+    price_bias_file = f"price_bias_sensitivity_AG={A_G}_AL={A_L}{contract_type}_{time_horizon}_{num_scenarios}.png"
+    production_bias_file = f"production_bias_sensitivity_AG={A_G}_AL={A_L}{contract_type}_{time_horizon}_{num_scenarios}.png"
+    price_file_mean = f"price_sensitivity_mean_AG={A_G}_AL={A_L}{contract_type}_{time_horizon}_{num_scenarios}.png"
+    price_file_std = f"price_sensitivity_std_AG={A_G}_AL={A_L}{contract_type}_{time_horizon}_{num_scenarios}.png"
+    production_file_mean = f"production_sensitivity_mean_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}_{num_scenarios}.png"
+    production_file_std = f"production_sensitivity_std_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}_{num_scenarios}.png"
+    load_file_mean = f"load_sensitivity_mean_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}_{num_scenarios}.png"
+    load_file_std = f"load_sensitivity_std_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}_{num_scenarios}.png"
     prod_CR_file = f"prod_CR_sensitivity_AG={A_G}_AL={A_L}{contract_type}_{time_horizon}_{num_scenarios}.png"
     load_CR_file = f"load_CR_sensitivity_AG={A_G}_AL={A_L}{contract_type}_{time_horizon}_{num_scenarios}.png"
-    boundary_file = f"no_contract_boundary_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    boundary_file_all = f"no_contract_boundary_all_{contract_type}_{time_horizon}_{num_scenarios}.png"
+    boundary_file_price = f"no_contract_boundary_price_{contract_type}_{time_horizon}_{num_scenarios}.png"
+    boundary_file_all_price = f"no_contract_boundary_all_price_{contract_type}_{time_horizon}_{num_scenarios}.png"
+    boundary_file_production = f"no_contract_boundary_production_{contract_type}_{time_horizon}_{num_scenarios}.png"
+    boundary_file_all_production = f"no_contract_boundary_all_production_{contract_type}_{time_horizon}_{num_scenarios}.png"
     negotiation_sensitivity_file = f"negotiation_sensitivity_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}_{num_scenarios}.png"
     negotation_earnings_file = f"negotiation_earnings_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}_{num_scenarios}.png"
     load_ratio_file = f"load_ratio_sensitivity_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}_{num_scenarios}.png"
@@ -236,13 +254,15 @@ def main():
     
     
     # Generate plots 
-        # Boxplot of earnings
+    # Boxplot of earnings
     plotter._risk_plot_earnings_boxplot( fixed_A_G,  # Use middle value
         A_L_to_plot=params['A_L_values'].tolist(),filename=os.path.join(plots_folder, earnings_boxplot_file))
-    plotter._plot_elasticity_tornado(['StrikePrice','ContractAmount',],filename=os.path.join(plots_folder, tornando_file))
+    plotter._plot_elasticity_tornado(metrics=['StrikePrice','ContractAmount','Utility_G','Utility_L'],bias=False,filename=os.path.join(plots_folder, tornando_file))
+
+    plotter._plot_3D_sensitivity_results(sensitivity_type='risk', filename='risk_3d_plot.png')
 
     plotter._nego_plot_earnings_boxplot(filename=os.path.join(plots_folder, negotation_earnings_file))
-    plotter._plot_parameter_sensitivity_spider(filename=os.path.join(plots_folder, spider_file))
+    plotter._plot_parameter_sensitivity_spider(bias=False,filename=os.path.join(plots_folder, spider_file))
     # Risk sensitivity plots - save to both locations
     plotter._plot_sensitivity_results_heatmap('risk',filename=os.path.join(plots_folder, risk_file))
     plotter._plot_sensitivity_results_heatmap('risk',filename=os.path.join(DROPBOX_DIR, risk_file))
@@ -261,11 +281,15 @@ def main():
     
     #Radar Chart 
 
-    # Bias sensitivity plots - save to both locations
-    plotter._plot_sensitivity_results_heatmap('bias',filename=os.path.join(plots_folder, bias_file))
-    plotter._plot_sensitivity_results_heatmap('bias',filename=os.path.join(DROPBOX_DIR, bias_file))
-            
-   
+    # Price bias sensitivity plots - save to both locations
+    plotter._plot_sensitivity_results_heatmap('price_bias',filename=os.path.join(plots_folder, price_bias_file))
+    plotter._plot_sensitivity_results_heatmap('price_bias',filename=os.path.join(DROPBOX_DIR, price_bias_file))
+
+    # Production bias sensitivity plots - save to both locations
+    plotter._plot_sensitivity_results_heatmap('production_bias',filename=os.path.join(plots_folder, production_bias_file))
+    plotter._plot_sensitivity_results_heatmap('production_bias',filename=os.path.join(DROPBOX_DIR, production_bias_file))
+
+
     # Plot negotiation sensitivity - save to both locations
     plotter._plot_sensitivity_results_line('negotiation',filename=os.path.join(plots_folder, negotiation_sensitivity_file))
     plotter._plot_sensitivity_results_line('negotiation',filename=os.path.join(DROPBOX_DIR, negotiation_sensitivity_file))
@@ -287,18 +311,9 @@ def main():
     plotter._plot_sensitivity('Load_Change', 'Load',filename=os.path.join(plots_folder, load_file))
     """
 
-    # Plot alpha sensitivity - save to both locations
-    #plotter._plot_sensitivity_results_line('alpha',filename=os.path.join(plots_folder, alpha_sensitivity_file))
-    #plotter._plot_sensitivity_results_line('alpha',filename=os.path.join(DROPBOX_DIR, alpha_sensitivity_file))
-
-    # Plot alpha earnings - save to both locations
-    #plotter._plot_earnings_histograms_alpha(filename=os.path.join(plots_folder, alpha_earnings_file))
-    #plotter._plot_earnings_histograms_alpha(filename=os.path.join(DROPBOX_DIR, alpha_earnings_file))
-     
-      
-    plotter._plot_no_contract_boundaries(filename=os.path.join(plots_folder, boundary_file))
+    #plotter._plot_no_contract_boundaries(sensitivity_type='price', filename=os.path.join(plots_folder, boundary_file_price))
     #plotter._plot_no_contract_boundaries(filename=os.path.join(DROPBOX_DIR, boundary_file))
-    plotter._plot_no_contract_boundaries_all(filename=os.path.join(plots_folder, boundary_file_all))
+    #plotter._plot_no_contract_boundaries_all(sensitivity_type='price', filename=os.path.join(plots_folder, boundary_file_all_price))
     #plotter._plot_no_contract_boundaries_all(filename=os.path.join(DROPBOX_DIR, boundary_file_all)) 
     print("All plots generated successfully!")
 

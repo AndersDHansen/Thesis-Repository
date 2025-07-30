@@ -13,6 +13,8 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 from scipy import stats
+import statsmodels.api as sm
+
 
 # ───────────────────────── helpers ──────────────────────────
 
@@ -51,15 +53,25 @@ def _save_matrix(folder: Path, kind: str, mat: np.ndarray, start: str | pd.Times
 
 @dataclass
 class PriceModel:
-    s:float
-    loc: float
-    scale: float
     rng: np.random.Generator
+    s: Optional[float] = None  # Lognormal parameters
+    loc: Optional[float] = None
+    scale: Optional[float] = None
+    start_value: Optional[float] = None  # Starting value for OU process
+    kappa: Optional[float] = None  # OU parameters
+    theta: Optional[float] = None
+    theta_1 : Optional[float] = None  # Trend parameter for OU process
+    sigma: Optional[float] = None
+
 
     @classmethod
-    def from_csv(cls, csv_path: str, seed: Optional[int] = None) -> "PriceModel":
+    def from_csv(cls, sampling_type: str, csv_path: str, seed: Optional[int] = None) -> "PriceModel":
         df = pd.read_csv(csv_path, sep=";", decimal=",")
+        
         df.index = pd.to_datetime(df["HourUTC"])
+
+        # Exclude 2025 data
+        #df = df[df.index.year < 2025]
         mean_price = df['DK2_EUR/MWh'].mean()
         std_price = df['DK2_EUR/MWh'].std()
         df_clean = df[(df['DK2_EUR/MWh'] > mean_price - 3*std_price) & 
@@ -67,23 +79,142 @@ class PriceModel:
 
         print("Data shape after outlier removal:", df_clean.shape)
 
-        # Remove negative prices if they exist and don't make economic sense
-        #df_clean = df_clean[df_clean[price_col] > 0]
-        monthly = df["DK2_EUR/MWh"][1:].resample("ME").mean().to_numpy(float) *1e-3 # Convert from EUR/MWh to Mio EUR/GWh
-        s, loc, scale = stats.lognorm.fit(monthly)
-        return cls(s, loc, scale, np.random.default_rng(seed))
+        if sampling_type == "OU_Process":  # Actually OU process
+            # Resample to monthly data
+            monthly = df_clean["DK2_EUR/MWh"].resample("ME").mean().to_numpy(float) * 1e-3  # Convert to Mio EUR/GWh
+            start_value = monthly[-1]
+
+            # Step 1: Prepare time series for OU parameter estimation with time-varying mean
+            X = monthly
+            X_t = X[:-1]
+            X_tp1 = X[1:]
+
+            # Time index (normalized to [0,1] for numerical stability)
+            t_raw = np.arange(len(X_t))
+            t_normalized = t_raw / len(X_t)  # Normalize time to [0,1]
+
+            # Time step is 1 month = 1/12 years
+            dt = 1/12
+            dX_dt = (X_tp1 - X_t) / dt  # Convert to annual rate
+
+            # Step 2: Linear regression with time-varying mean
+            # Model: dX/dt = κ[θ(t) - X_t] = κ[(θ₀ + θ₁*t) - X_t]
+            # Rearranged: dX/dt = κθ₀ + κθ₁*t - κX_t
+            # Regression: dX/dt = a + b*t + c*X_t
+            
+            regression_matrix = np.column_stack([
+                np.ones(len(X_t)),    # Constant term (a = κθ₀)
+                t_normalized,         # Time trend (b = κθ₁)
+                X_t                   # Lagged price level (c = -κ)
+            ])
+            
+            model = sm.OLS(dX_dt, regression_matrix)
+            results = model.fit()
+
+            # Step 3: Extract OU parameters with time-varying mean
+            a = results.params[0]  # κθ₀
+            b = results.params[1]  # κθ₁  
+            c = results.params[2]  # -κ
+            
+            # Solve for OU parameters
+            kappa = -c
+            theta_0 = a / kappa if kappa != 0 else X.mean()
+            theta_1_normalized = b / kappa if kappa != 0 else 0
+            
+            # Convert theta_1 back to original time scale (per year)
+            theta_1_annual = theta_1_normalized / len(X_t) * 12  # Convert to per year
+            
+            # Estimate volatility from residuals
+            sigma = results.resid.std() * np.sqrt(dt)  # Volatility per √year
+
+            print(f"Estimated OU parameters with time-varying θ(t):")
+            print(f"  κ (mean reversion speed) = {kappa:.4f} per year")
+            print(f"  θ₀ (initial long-run mean) = {theta_0:.4f} Mio EUR/GWh")
+            print(f"  θ₁ (trend slope) = {theta_1_annual:.6f} Mio EUR/GWh per year")
+            print(f"  σ (volatility) = {sigma:.4f} Mio EUR/GWh per √year")
+            
+
+            return cls(
+                rng=np.random.default_rng(seed),
+                c=None, 
+                loc=None, 
+                scale=None,
+                start_value=start_value,
+                kappa=kappa, 
+                theta=theta_0,  # Store initial theta
+                theta_1=theta_1_annual,  # Store trend parameter
+                sigma=sigma
+            )
+
+        else:
+            # Lognormal distribution fitting
+            monthly = df_clean["DK2_EUR/MWh"][1:].resample("ME").mean().to_numpy(float) * 1e-3
+            s, loc, scale = stats.lognorm.fit(monthly)
+            return cls(
+                rng=np.random.default_rng(seed),
+                s=s, 
+                loc=loc, 
+                scale=scale,
+                start_value=None,
+                kappa=None,
+                theta=None,
+                theta_1=None,
+                sigma=None
+            )
+
+    def simulate(self, sampling_type: str, years: int, sims: int) -> np.ndarray:
+        if sampling_type == "OU_Process":  # Actually OU process
+            # Generate monthly data points
+            n_steps = years * 12  # Total number of monthly steps
+            dt = 1/12  # Monthly time step in years
+            
+            all_simulations = []
+            
+            for i in range(sims):
+                # Initialize the process with the starting value
+                process_values = [self.start_value]
+                
+                for j in range(n_steps):
+                    current_time_years = j * dt  # Time in years from start
+                    current_value = process_values[-1]
+                    
+                    # Time-varying long-run mean: θ(t) = θ₀ + θ₁*t
+                    theta_t = self.theta + self.theta_1 * current_time_years
+                
+                    
+                    # OU process: dX = κ[θ(t) - X]dt + σdW
+                    drift = self.kappa * (theta_t - current_value) * dt
+                    diffusion = self.sigma * np.sqrt(dt) * self.rng.normal(0, 1)
+                    
+                    next_value = current_value + drift + diffusion
+                    
+                    # Ensure non-negative prices (reflecting barrier at 0)
+                    next_value = max(next_value, 0)
+                    
+                    process_values.append(next_value)
+                
+                # Remove the initial value and keep only the simulated path
+                all_simulations.append(process_values[1:])
+            
+            # Convert to array with shape (n_steps, sims)
+            all_simulations = np.array(all_simulations).T
+            
+            return all_simulations
         
-    def simulate(self, years: int, sims: int) -> np.ndarray:
-        n_months = 12
-        return stats.lognorm.rvs(s=self.s, loc=self.loc, scale=self.scale, 
-                                size=(n_months * years, sims), random_state=self.rng)
+        else:
+            # Lognormal distribution sampling
+            n_months = 12 
+            return stats.lognorm.rvs(s=self.s, loc=self.loc, scale=self.scale, 
+                size=(n_months * years, sims), random_state=self.rng
+            )
+                                    
 
 
 # ──────────────────── production model (GEV) ─────────────────
 
 @dataclass
 class ProductionModel:
-    shape: float
+    c: float
     loc: float
     scale: float
     cap_gwh: Optional[float]
@@ -99,15 +230,15 @@ class ProductionModel:
         df = pd.read_csv(csv_path)
         df["time"] = pd.to_datetime(df["time"])
         monthly = df.set_index("time")["electricity"].resample("ME").sum().to_numpy(float)
-        shape, loc, scale = stats.dweibull.fit(monthly)
-        cap_gwh = capacity_mw * 8_760 / 1000 if capacity_mw else None
-        return cls(shape, loc, scale, cap_gwh, np.random.default_rng(seed))
+        c, loc, scale = stats.dweibull.fit(monthly)
+        cap_gwh = capacity_mw * 8760 / 1000 if capacity_mw else None
+        return cls(c, loc, scale, cap_gwh, np.random.default_rng(seed))
 
     def simulate(self, years: int, sims: int) -> np.ndarray:
         n_months = 12
         draws = stats.dweibull.rvs(
-            self.shape, loc=self.loc, scale=self.scale,
-            size=(n_months*years, sims), random_state=self.rng
+            c=self.c, loc=self.loc, scale=self.scale,
+            size=(n_months * years, sims), random_state=self.rng
         ) / 1000  # MWh → GWh
         if self.cap_gwh is not None:
             np.clip(draws, 0, self.cap_gwh, out=draws)
@@ -170,8 +301,8 @@ class CaptureRateModel:
         return cls(price_mu,price_std, prod_mu,prod_std,corr_agg,z_year_corr,mu_z_corr,std_z_corr, np.random.default_rng(seed))
 
     def simulate(self, years: int, sims: int) -> np.ndarray:
-        
-        noise    = np.random.normal(0, self.std_z_corr, size=(years,sims))
+
+        noise    = self.rng.normal(0, self.std_z_corr, size=(years,sims))
         rho_samples = self.mu_z_corr + noise
         rho_samp  = np.tanh(rho_samples)                                # ρ ∈ (-1,1)
 
@@ -271,15 +402,15 @@ class LoadModel:
         df = df[df['Branche'] == 'Erhverv']
         df["ConsumptionGWh"] = df["ConsumptionkWh"] * 1e-6 # Convert kWh to GWh
 
-            
+
         monthly = df["ConsumptionGWh"][1:].resample("ME").sum().to_numpy(float) 
         a,b, loc, scale = stats.beta.fit(monthly)
-        return cls(a,b, loc, scale, np.random.default_rng(seed))
-        
+        return cls(a, b, loc, scale, np.random.default_rng(seed))
+
     def simulate(self, years: int, sims: int) -> np.ndarray:
         n_months = 12
-        return stats.beta.rvs(a=self.a, b= self.b, loc=self.loc, scale=self.scale, 
-                                size=(n_months * years, sims), random_state=self.rng)
+        return stats.beta.rvs(a=self.a, b=self.b, loc=self.loc, scale=self.scale, 
+                                size=(n_months* years, sims), random_state=self.rng)
 
 
 
@@ -304,15 +435,17 @@ def run_scenarios(
 
     rng = np.random.default_rng(seed)
 
-    # 1) price
-    price_mdl = PriceModel.from_csv(price_csv_path, seed)
-    price_mat = price_mdl.simulate(years, num_scenarios)
+    # 1) price (OU or lognormal)
+    #sampling_type = "OU_Process"  # or "Lognormal"
+    sampling_type = "Normal"  # or "Lognormal"
+    price_mdl = PriceModel.from_csv(sampling_type,  price_csv_path, seed)
+    price_mat = price_mdl.simulate(sampling_type, years, num_scenarios)
     _save_matrix(out, "price", price_mat, start_time,resample=True)
 
     # 2) production
     prod_mdl = ProductionModel.from_csv(prod_csv_path, capacity_mw, seed)
     prod_mat = prod_mdl.simulate(years, num_scenarios)
-    _save_matrix(out, "production", prod_mat, start_time,resample =True)
+    _save_matrix(out, "production", prod_mat, start_time,resample=True)
 
     # 3) capture‑rate (just needs price file that already has production col)
     cr_mdl = CaptureRateModel.from_csv(price_csv_path, seed)
@@ -332,8 +465,8 @@ def run_scenarios(
 
 if __name__ == "__main__":
     # Example usage
-    years =5 # 10 years
-    num_scenarios = 30000
+    years = 5  # 20 years
+    num_scenarios = 1000
 
     # Wind Profile 
     csv_wind = "Code/Data/Wind/combined_wind_data.csv"  # adjust path if needed
@@ -343,7 +476,7 @@ if __name__ == "__main__":
     price_csv_path =  "Code/Data/EnergyReport.csv"
     prod_csv_path = csv_wind
     consumption_csv_path =  "Code/Data/ConsumptionIndustry.csv"  # Not used in this script, but can be added if needed
-    capacity_mw = 100  # MW
+    capacity_mw = 30  # MW
     output_dir = "Code/scenarios"    
     run_scenarios(
         years=years,
