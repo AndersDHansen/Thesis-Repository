@@ -175,6 +175,10 @@ def calculate_cvar_right(earnings: np.ndarray, alpha: float) -> float:
     return cvar
 
 
+
+
+
+
 def _left_tail_mask(arr, alpha):
     var_threshold_lower = np.percentile(arr, (1-alpha)*100)
     left_tail = arr <= var_threshold_lower
@@ -187,6 +191,84 @@ def _right_tail_mask(arr, alpha):
 
     return right_tail               # boolean mask
 
+def _calculate_S_star_PAP_G(x,gamma,A,alpha, production,price,capture_rate):
+    """
+    Calculate the optimal strike price S* for the Producer-side in PAP.
+    """
+    S =x[0]
+    pi_G = ((1-gamma) * production * price * capture_rate + 
+                    gamma * production * S).sum(axis=0)
+    
+    mask_G = _left_tail_mask(pi_G, alpha)
+
+    rev_G = (production * (S - price * capture_rate)).sum(axis=0)
+    expected_G = rev_G.mean()
+
+    # Risk adjustment
+
+    tail_G = rev_G[mask_G].mean() if mask_G.any() else 0.0
+    # Calculate S_star
+    S_star = (1-A) * expected_G + A * tail_G
+
+    return S_star
+
+def _calculate_S_star_PAP_L(x,gamma,A,alpha, production,price,capture_rate,load_CR, load_scenarios):
+    """
+    Calculate the optimal strike price S* for the Producer-side in PAP.
+    """
+    S = x[0]
+    pi_L = (-price * load_CR * load_scenarios).sum(axis=0) + (gamma * production * (price * capture_rate - S)).sum(axis=0)
+
+    mask_L = _left_tail_mask(pi_L, alpha)
+
+    rev_L = (production * ( price * capture_rate - S)).sum(axis=0)
+    expected_L = rev_L.mean()
+    tail_L = rev_L[mask_L].mean() if mask_L.any() else 0
+
+    # Calculate S_star
+    S_star = (1 - A) * expected_L + A * tail_L
+
+    return S_star
+
+
+
+def _calculate_S_star_BL_G(x,M,A,alpha, production,price,capture_rate):
+    """
+    Calculate the optimal strike price S* for the Producer-side in PAP.
+    """
+    S =x[0]
+    pi_G = (production * price * capture_rate + (S - price)*M).sum(axis=0)
+    
+    mask_G = _left_tail_mask(pi_G, alpha)
+
+    rev_G = (-M * price).sum(axis=0)
+    expected_G = rev_G.mean()
+
+    # Risk adjustment
+
+    tail_G = rev_G[mask_G].mean() if mask_G.any() else 0.0
+    # Calculate S_star
+    S_star = (1-A) * expected_G + A * tail_G
+
+    return S_star
+
+def _calculate_S_star_BL_L(x,M,A,alpha, production,price,capture_rate,load_CR, load_scenarios):
+    """
+    Calculate the optimal strike price S* for the Producer-side in PAP.
+    """
+    S = x[0]
+    pi_L = (-load_scenarios*load_CR*price).sum(axis=0) + ((price-S) * M).sum(axis=0)
+
+    mask_L = _left_tail_mask(pi_L, alpha)
+
+    rev_L = (M * price).sum(axis=0)
+    expected_L = rev_L.mean()
+    tail_L = rev_L[mask_L].mean() if mask_L.any() else 0
+
+    # Calculate S_star
+    S_star = (1 - A) * expected_L + A * tail_L
+
+    return S_star
 
 
 def optimize_nash_product(
