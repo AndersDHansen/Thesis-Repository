@@ -136,7 +136,7 @@ class PriceModel:
 
             return cls(
                 rng=np.random.default_rng(seed),
-                c=None, 
+                s=None, 
                 loc=None, 
                 scale=None,
                 start_value=start_value,
@@ -306,7 +306,6 @@ class CaptureRateModel:
         rho_samples = self.mu_z_corr + noise
         rho_samp  = np.tanh(rho_samples)                                # ρ ∈ (-1,1)
 
-
         CR = 1 + rho_samp * (self.price_std/self.price_mu) *(self.prod_std/self.prod_mu)
         return CR
     
@@ -371,11 +370,12 @@ class LoadRateModel:
 
     def simulate(self, years: int, sims: int) -> np.ndarray:
         
-        noise    = np.random.normal(0, self.std_z_corr, size=(years,sims))
+        noise    = self.rng.normal(0, self.std_z_corr, size=(years,sims))
         rho_samples = self.mu_z_corr + noise
         rho_samp  = np.tanh(rho_samples)                                # ρ ∈ (-1,1)
 
         CR = 1 + rho_samp * (self.price_std/self.price_mu) *(self.consump_std/self.consump_mu)
+ 
         return CR
 
 
@@ -391,7 +391,7 @@ class LoadModel:
     rng: np.random.Generator
 
     @classmethod
-    def from_csv(cls,csv_path_consumption:str, seed: Optional[int] = None) -> "LoadRateModel":
+    def from_csv(cls,csv_path_consumption:str, seed: Optional[int] = None) -> "LoadModel":
        
 
         df = pd.read_csv(csv_path_consumption, sep=";", decimal=",")
@@ -437,7 +437,7 @@ def run_scenarios(
 
     # 1) price (OU or lognormal)
     #sampling_type = "OU_Process"  # or "Lognormal"
-    sampling_type = "Normal"  # or "Lognormal"
+    sampling_type = "OU_Process"  # or "Lognormal"
     price_mdl = PriceModel.from_csv(sampling_type,  price_csv_path, seed)
     price_mat = price_mdl.simulate(sampling_type, years, num_scenarios)
     _save_matrix(out, "price", price_mat, start_time,resample=True)
@@ -465,8 +465,8 @@ def run_scenarios(
 
 if __name__ == "__main__":
     # Example usage
-    years = 5  # 20 years
-    num_scenarios = 1000
+    years = 5  # 5 years
+    num_scenarios = 50000  # Reduced from 50000 for faster computation
 
     # Wind Profile 
     csv_wind = "Code/Data/Wind/combined_wind_data.csv"  # adjust path if needed

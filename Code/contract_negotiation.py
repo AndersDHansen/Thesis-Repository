@@ -85,6 +85,8 @@ class ContractNegotiation:
         # Per Scenario 
         self.data.production_per_scenario = self.data.production.sum(axis=0)
         self.data.expected_production = self.data.production_per_scenario.mean()
+
+
   
 
       
@@ -140,6 +142,8 @@ class ContractNegotiation:
 
         self.data.K_G_lambda_Sigma = self.data.K_G_price * self.data.expected_lambda_sum_true
         self.data.K_L_lambda_Sigma = self.data.K_L_price * self.data.expected_lambda_sum_true
+
+        """ 
         if self.data.contract_type == 'Baseload': 
             # Determine the *absolute* bias constants K_G and K_L for the equations
             # Based on Theorem 1, K_G/K_L are absolute shifts.:
@@ -270,7 +274,7 @@ class ContractNegotiation:
 
             # Perform optimization
             #gamma = 1 since that is the most likely resulting contract amount for PAP 
-            gamma = 1.0
+            gamma = 0 
 
             def constraint_S_star_G(x):
                 S_star = _calculate_S_star_PAP_G(x  , gamma,self.data.A_G, self.data.alpha, self.data.production_G, self.data.price_G,self.data.capture_rate)
@@ -312,10 +316,11 @@ class ContractNegotiation:
             print(f"Optimal Strike Price (Generator-side): {self.data.SR_star_new*1e3:.4f} EUR/MWh")
             print(f"Optimal Strike Price (Load-side): {self.data.SU_star_new*1e3:.4f} EUR/MWh")
             print()
+            """
     def _build_variables_PAP(self):
 
          # Auxiliary variables for logaritmic terms
-        EPS = 1e-3            # pick something natural for your scale
+        EPS = 1e-6            # pick something natural for your scale
         self.variables.arg_G = self.model.addVar(lb=EPS, name="UG_minus_ZetaG")
         self.variables.arg_L = self.model.addVar(lb=EPS, name="UL_minus_ZetaL")
 
@@ -344,16 +349,19 @@ class ContractNegotiation:
             name='Zeta_Auxillary_L',
             lb=-gp.GRB.INFINITY,ub=gp.GRB.INFINITY)
       
-        self.variables.eta_G = {s: self.model.addVar(
-            name='Auxillary_Variable_G_{0}'.format(s),
-            lb=0,ub=gp.GRB.INFINITY)
-            for s in self.data.SCENARIOS_L
-        }
-        self.variables.eta_L = {s: self.model.addVar(
-            name='Auxillary_Variable_L_{0}'.format(s),
-            lb=0,ub=gp.GRB.INFINITY)
-            for s in self.data.SCENARIOS_L
-        }
+        self.variables.eta_G = self.model.addVars(
+            self.data.SCENARIOS_L,
+            name='Auxillary_Variable_G',
+            lb=0,
+            ub=gp.GRB.INFINITY
+)
+
+        self.variables.eta_L = self.model.addVars(
+            self.data.SCENARIOS_L,
+            name='Auxillary_Variable_L',
+            lb=0,
+            ub=gp.GRB.INFINITY
+        )
        
         self.model.update() 
 
@@ -389,16 +397,19 @@ class ContractNegotiation:
             name='Zeta_Auxillary_L',
             lb=-gp.GRB.INFINITY,ub=gp.GRB.INFINITY)
       
-        self.variables.eta_G = {s: self.model.addVar(
-            name='Auxillary_Variable_G_{0}'.format(s),
-            lb=0,ub=gp.GRB.INFINITY)
-            for s in self.data.SCENARIOS_L
-        }
-        self.variables.eta_L = {s: self.model.addVar(
-            name='Auxillary_Variable_L_{0}'.format(s),
-            lb=0,ub=gp.GRB.INFINITY)
-            for s in self.data.SCENARIOS_L
-        }
+        self.variables.eta_G = self.model.addVars(
+            self.data.SCENARIOS_L,
+            name='Auxillary_Variable_G',
+            lb=0,
+            ub=gp.GRB.INFINITY
+        )
+
+        self.variables.eta_L = self.model.addVars(
+            self.data.SCENARIOS_L,
+            name='Auxillary_Variable_L',
+            lb=0,
+            ub=gp.GRB.INFINITY
+        )
   
         self.model.update() 
 
@@ -433,28 +444,42 @@ class ContractNegotiation:
         self.model.addGenConstrLog(self.variables.arg_G, self.variables.log_arg_G, "log_G")
         self.model.addGenConstrLog(self.variables.arg_L, self.variables.log_arg_L, "log_L")
 
-        self.constraints.eta_G_constraint = {
-            s: self.model.addConstr(
-            #With costs
-            #self.variables.eta_G[s] >=self.variables.zeta_G - gp.quicksum((self.data.price_G[t,s]-self.data.generator_cost_a['G'])*self.data.production[t,s]-self.data.generator_cost_b['G']*(self.data.production[t,s]*self.data.production[t,s])
-            #                                                                +( self.variables.S- self.data.price_G[t,s])*self.variables.M for t in self.data.TIME),
-            self.variables.eta_G[s] >=(self.variables.zeta_G - gp.quicksum(self.data.capture_rate.iat[t,s]*self.data.price_G.iat[t,s]*self.data.production_G.iat[t,s]
-                                                                        +(self.variables.S - self.data.price_G.iat[t,s])*self.variables.M for t in self.data.TIME)),
-            name='Eta_Aversion_Constraint_G_in_scenario_{0}'.format(s)
-        )
-        for s in self.data.SCENARIOS_L
-        }
+        capture_rate_array = self.data.capture_rate.values
+        price_G_array = self.data.price_G.values
+        production_G_array = self.data.production_G.values
+        load_scenarios_array = self.data.load_scenarios.values
+        load_CR_array = self.data.load_CR.values
+        price_L_array = self.data.price_L.values
 
-        self.constraints.eta_L_constraint = {
-            s: self.model.addConstr(
-            self.variables.eta_L[s] >=(self.variables.zeta_L - gp.quicksum(self.data.load_scenarios.iat[t,s]*(self.data.retail_price-self.data.load_CR.iat[t,s] * self.data.price_L.iat[t,s])
-                                                                            +(self.data.price_L.iat[t,s] -self.variables.S)*self.variables.M  for t in self.data.TIME)),
-            name='Eta_Aversion_Constraint_L_in_scenario_{0}'.format(s)
-        )
-        for s in self.data.SCENARIOS_L
-        }
+        # Pre-compute constant terms for each scenario
+        generator_const_per_scenario = (
+            capture_rate_array * price_G_array * production_G_array
+        ).sum(axis=0)  # Sum over time for each scenario
 
+        load_const_per_scenario = (
+            -load_scenarios_array *  load_CR_array * price_L_array
+        ).sum(axis=0)  # Sum over time for each scenario
+
+        # Batch create eta_G constraints
+        self.constraints.eta_G_constraint = self.model.addConstrs(
+        (self.variables.eta_G[s] >= 
+         self.variables.zeta_G - (generator_const_per_scenario[s] + 
+         gp.quicksum((self.variables.S - price_G_array[t,s]) * self.variables.M 
+                     for t in self.data.TIME))
+         for s in self.data.SCENARIOS_L),
+        name='Eta_Aversion_Constraint_G'
+    )
     
+    # Batch create eta_L constraints  
+        self.constraints.eta_L_constraint = self.model.addConstrs(
+        (self.variables.eta_L[s] >= 
+         self.variables.zeta_L - (load_const_per_scenario[s] + 
+         gp.quicksum((price_L_array[t,s] - self.variables.S) * self.variables.M 
+                     for t in self.data.TIME))
+         for s in self.data.SCENARIOS_L),
+        name='Eta_Aversion_Constraint_L'
+    )
+
         self.model.update()
 
     def _build_constraints_PAP(self):
@@ -490,80 +515,111 @@ class ContractNegotiation:
         self.model.addGenConstrLog(self.variables.arg_L, self.variables.log_arg_L, "log_L")
 
     
-        self.constraints.eta_G_constraint = {
-            s: self.model.addConstr(
-            #With costs
-            #self.variables.eta_G[s] >=self.variables.zeta_G - gp.quicksum((self.data.price_G[t,s]-self.data.generator_cost_a['G'])*self.data.production[t,s]-self.data.generator_cost_b['G']*(self.data.production[t,s]*self.data.production[t,s])
-            #                                                                +( self.variables.S- self.data.price_G[t,s])*self.variables.M for t in self.data.TIME),
-            self.variables.eta_G[s] >=(self.variables.zeta_G - gp.quicksum( 
-                                    self.variables.gamma * self.data.production_G.iat[t, s] *self.variables.S 
-                                    + (1-self.variables.gamma) * (self.data.capture_rate.iat[t, s] * self.data.price_G.iat[t, s] * self.data.production_G.iat[t, s]) 
-                                    for t in self.data.TIME)),
-            name='Eta_Aversion_Constraint_G_in_scenario_{0}'.format(s)
-        )
-        for s in self.data.SCENARIOS_L
-        }
-      
+        
+        # Pre-extract all data as numpy arrays (do this once)
+        production_G_vals = self.data.production_G.values  # Shape: (time, scenarios)
+        capture_rate_vals = self.data.capture_rate.values  # Shape: (time, scenarios)
+        price_G_vals = self.data.price_G.values  # Shape: (time, scenarios)
+        price_L_vals = self.data.price_L.values  # Shape: (time, scenarios)
+        load_CR_vals = self.data.load_CR.values  # Shape: (time, scenarios)
+        load_scenarios_vals = self.data.load_scenarios.values  # Shape: (time, scenarios)
+        production_L_vals = self.data.production_L.values  # Shape: (time, scenarios)
 
-        self.constraints.eta_L_constraint = {
-            s: self.model.addConstr(
-            self.variables.eta_L[s] >=(self.variables.zeta_L - gp.quicksum( -self.data.price_L.iat[t,s]* self.data.load_CR.iat[t,s] * self.data.load_scenarios.iat[t,s] 
-                                                                           + self.variables.gamma * self.data.production_L.iat[t,s] * self.data.price_L.iat[t,s] * self.data.capture_rate.iat[t,s]
-                                                                            - self.variables.gamma * self.variables.S * self.data.production_L.iat[t,s]  for t in self.data.TIME)),
-            name='Eta_Aversion_Constraint_L_in_scenario_{0}'.format(s)
+        # Pre-compute coefficients for each scenario
+        # Generator constraints - coefficients for gamma*S term
+        gamma_S_coeff_G_per_scenario = production_G_vals.sum(axis=0)  # Sum over time for each scenario
+
+        # Generator constraints - constant terms for (1-gamma) term
+        const_G_per_scenario = (capture_rate_vals * price_G_vals * production_G_vals).sum(axis=0)
+
+        # Load constraints - constant terms
+        const_L_per_scenario = (-price_L_vals * load_CR_vals * load_scenarios_vals).sum(axis=0)
+
+        # Load constraints - coefficients for gamma term
+        gamma_coeff_L_per_scenario = (production_L_vals * price_L_vals * capture_rate_vals).sum(axis=0)
+
+        # Load constraints - coefficients for gamma*S term
+        gamma_S_coeff_L_per_scenario = -production_L_vals.sum(axis=0)
+
+
+        
+
+        self.constraints.eta_G_constraint = self.model.addConstrs(
+        (self.variables.eta_G[s] >= (
+            self.variables.zeta_G 
+            - self.variables.gamma * self.variables.S * gamma_S_coeff_G_per_scenario[s]
+            - (1 - self.variables.gamma) * const_G_per_scenario[s]
+            ) for s in range(len(self.data.SCENARIOS_L))),
+            name='Eta_Aversion_Constraint_G'
         )
-        for s in self.data.SCENARIOS_L
-        }
+
+        self.constraints.eta_L_constraint = self.model.addConstrs(
+            (self.variables.eta_L[s] >= (
+        self.variables.zeta_L 
+            - const_L_per_scenario[s]
+            - self.variables.gamma * gamma_coeff_L_per_scenario[s]
+            - self.variables.gamma * self.variables.S * gamma_S_coeff_L_per_scenario[s]
+        ) for s in range(len(self.data.SCENARIOS_L))),
+        name='Eta_Aversion_Constraint_L'
+        )
 
     def _build_objectives_PAP(self):
 
-        
+        # Pre-extract all data as numpy arrays (do this once)
+        prob_vals = self.data.PROB  # Shape: (scenarios,)
+        production_G_vals = self.data.production_G.values  # Shape: (time, scenarios)
+        capture_rate_vals = self.data.capture_rate.values  # Shape: (time, scenarios)
+        price_G_vals = self.data.price_G.values  # Shape: (time, scenarios)
+        price_L_vals = self.data.price_L.values  # Shape: (time, scenarios)
+        load_CR_vals = self.data.load_CR.values  # Shape: (time, scenarios)
+        load_scenarios_vals = self.data.load_scenarios.values  # Shape: (time, scenarios)
+        production_L_vals = self.data.production_L.values  # Shape: (time, scenarios)
 
-        EuG = gp.quicksum(
-        self.data.PROB[s] * (
-        # total captured production in scenario s, period t
-        self.variables.gamma * self.data.production_G.iat[t, s] *self.variables.S 
-        + (1-self.variables.gamma) * self.data.capture_rate.iat[t, s] * self.data.price_G.iat[t, s] * self.data.production_G.iat[t, s]
-        )
-        for t in self.data.TIME for s in self.data.SCENARIOS_L
-        )
+        # Pre-compute coefficients for all scenarios at once
+        # Generator utility coefficients
+        gamma_coeff_G = (prob_vals[np.newaxis, :] * production_G_vals).sum()  # Coefficient for gamma*S
+        non_gamma_coeff_G = (prob_vals[np.newaxis, :] * capture_rate_vals * 
+                            price_G_vals * production_G_vals).sum()  # Constant coefficient for (1-gamma) term
 
-    # ---------- 2) Expected profit of the Load  ---------- #
-        EuL = gp.quicksum(
-        self.data.PROB[s] * (
-        -self.data.price_L.iat[t,s]* self.data.load_CR.iat[t,s] * self.data.load_scenarios.iat[t,s] 
-                                                                           + self.variables.gamma * self.data.production_L.iat[t,s] * self.data.price_L.iat[t,s] * self.data.capture_rate.iat[t,s]
-                                                                            - self.variables.gamma * self.variables.S * self.data.production_L.iat[t,s] )
-        for t in self.data.TIME for s in self.data.SCENARIOS_L
-        )
+        # Load utility coefficients  
+        load_base_cost = -(prob_vals[np.newaxis, :] * price_L_vals * load_CR_vals * 
+                        load_scenarios_vals).sum()  # Constant term
 
-        # Generator's CVaR
-        CVaRG = self.variables.zeta_G - (1/(1-self.data.alpha)) * gp.quicksum(self.data.PROB[s] * self.variables.eta_G[s] 
-            for s in self.data.SCENARIOS_L
-        )
-        
-        # Load's CVaR
-        CVaRL = self.variables.zeta_L - (1/(1-self.data.alpha)) * gp.quicksum( self.data.PROB[s] * self.variables.eta_L[s] 
-            for s in self.data.SCENARIOS_L
-        )
+        gamma_price_coeff_L = (prob_vals[np.newaxis, :] * production_L_vals * 
+                            price_L_vals * capture_rate_vals).sum()  # Coefficient for gamma
+
+        gamma_S_coeff_L = -(prob_vals[np.newaxis, :] * production_L_vals).sum()  # Coefficient for gamma*S
+
+        # CVaR coefficients
+        cvar_coeff = sum(self.data.PROB[s] for s in self.data.SCENARIOS_L)
+        eta_G_sum = gp.quicksum(self.data.PROB[s] * self.variables.eta_G[s] 
+                            for s in self.data.SCENARIOS_L)
+        eta_L_sum = gp.quicksum(self.data.PROB[s] * self.variables.eta_L[s] 
+                            for s in self.data.SCENARIOS_L)
+
+        # Build expressions using pre-computed coefficients
+        EuG = (self.variables.gamma * self.variables.S * gamma_coeff_G + 
+            (1 - self.variables.gamma) * non_gamma_coeff_G)
+
+        EuL = (load_base_cost + 
+            self.variables.gamma * gamma_price_coeff_L + 
+            self.variables.gamma * self.variables.S * gamma_S_coeff_L)
+
+        # CVaR calculations
+        CVaRG = self.variables.zeta_G - (1/(1-self.data.alpha)) * eta_G_sum
+        CVaRL = self.variables.zeta_L - (1/(1-self.data.alpha)) * eta_L_sum
 
         # Calculate utilities with risk aversion
-        UG = (1-self.data.A_G) *  EuG + self.data.A_G * CVaRG
-        UL = (1-self.data.A_L) *  EuL + self.data.A_L * CVaRL
+        UG = (1-self.data.A_G) * EuG + self.data.A_G * CVaRG
+        UL = (1-self.data.A_L) * EuL + self.data.A_L * CVaRL
 
-
-        # Normal Objective function 
-        #objective = (UG - self.data.Zeta_G) * (UL-self.data.Zeta_L)
-        #self.model.setObjective(objective,sense = gp.GRB.MAXIMIZE)
-        
-        # Set logarithmic objective
-         # Set logarithmic objective
-        if self.data.Beta_G == 1:
-            self.model.setObjective((UG - self.data.Zeta_G),GRB.MAXIMIZE)
+        # Set objective (same logic as before)
+        if self.data.tau_G == 1:
+            self.model.setObjective((UG - self.data.Zeta_G), GRB.MAXIMIZE)
             self.model.addConstr(UL - self.data.Zeta_L >= 0, "UL_non_negative")
             print("sheep")
-        elif self.data.Beta_L == 1:
-            self.model.setObjective((UL-self.data.Zeta_L),GRB.MAXIMIZE)
+        elif self.data.tau_L == 1:
+            self.model.setObjective((UL - self.data.Zeta_L), GRB.MAXIMIZE)
             self.model.addConstr(UG - self.data.Zeta_G >= 0, "UG_non_negative")
             print("wolf")
         else:
@@ -571,66 +627,82 @@ class ContractNegotiation:
             self.model.addConstr(self.variables.arg_G == (UG - self.data.Zeta_G), "arg_G_constr")
             self.model.addConstr(self.variables.arg_L == (UL - self.data.Zeta_L), "arg_L_constr")
             self.model.setObjective(
-            ( self.data.Beta_G * self.variables.log_arg_G + self.data.Beta_L * self.variables.log_arg_L),
-            GRB.MAXIMIZE) 
+                (self.data.tau_G * self.variables.log_arg_G + self.data.tau_L * self.variables.log_arg_L),
+                GRB.MAXIMIZE)
+            print("goat") 
 
     def _build_objective(self):
         """Build the objective function for contract negotiation."""
-      
-        EuG = gp.quicksum(
-        self.data.PROB[s]*(self.data.capture_rate.iat[t,s] * self.data.price_G.iat[t,s] * self.data.production_G.iat[t,s] +(self.variables.S  - self.data.price_G.iat[t,s]) * self.variables.M )
-        for t in self.data.TIME 
-        for s in self.data.SCENARIOS_L
-        )
+    
 
-            # Load's market earnings and contract payments
-        EuL = gp.quicksum(
-            self.data.PROB[s]*(self.data.load_scenarios.iat[t,s] * (self.data.retail_price - self.data.load_CR.iat[t,s]*self.data.price_L.iat[t,s]) + (self.data.price_L.iat[t,s] - self.variables.S) * self.variables.M)
-            for t in self.data.TIME 
-            for s in self.data.SCENARIOS_L
-        )
+        # Pre-extract all data as numpy arrays (do this once)
+        prob_vals = self.data.PROB  # Shape: (scenarios,)
+        capture_rate_vals = self.data.capture_rate.values  # Shape: (time, scenarios)
+        price_G_vals = self.data.price_G.values  # Shape: (time, scenarios)
+        production_G_vals = self.data.production_G.values  # Shape: (time, scenarios)
+        load_scenarios_vals = self.data.load_scenarios.values  # Shape: (time, scenarios)
+        load_CR_vals = self.data.load_CR.values  # Shape: (time, scenarios)
+        price_L_vals = self.data.price_L.values  # Shape: (time, scenarios)
 
-        # Generator's CVaR
-        CVaRG = self.variables.zeta_G - (1/(1-self.data.alpha)) * gp.quicksum(self.data.PROB[s] * self.variables.eta_G[s] 
-            for s in self.data.SCENARIOS_L
-        )
-        
-        # Load's CVaR
-        CVaRL = self.variables.zeta_L - (1/(1-self.data.alpha)) * gp.quicksum( self.data.PROB[s] * self.variables.eta_L[s] 
-            for s in self.data.SCENARIOS_L
-        )
+        # Pre-compute all coefficients using vectorized operations
+        # Generator utility components
+        gen_revenue_const = np.sum(prob_vals[np.newaxis, :] * capture_rate_vals * 
+                                price_G_vals * production_G_vals)
+
+        # Coefficients for S and M terms in generator utility
+        S_coeff_G = np.sum(prob_vals) * len(self.data.TIME)  # Coefficient for S*M
+        M_coeff_G = -np.sum(prob_vals[np.newaxis, :] * price_G_vals)  # Coefficient for M
+
+        # Load utility components  
+        load_revenue_const = np.sum(prob_vals[np.newaxis, :] * load_scenarios_vals * 
+                                (self.data.retail_price - load_CR_vals * price_L_vals))
+
+        # Coefficients for S and M terms in load utility
+        S_coeff_L = -np.sum(prob_vals) * len(self.data.TIME)  # Coefficient for S*M  
+        M_coeff_L = np.sum(prob_vals[np.newaxis, :] * price_L_vals)  # Coefficient for M
+
+        # CVaR components (these are already efficient)
+        eta_G_sum = gp.quicksum(self.data.PROB[s] * self.variables.eta_G[s] 
+                            for s in self.data.SCENARIOS_L)
+        eta_L_sum = gp.quicksum(self.data.PROB[s] * self.variables.eta_L[s] 
+                            for s in self.data.SCENARIOS_L)
+
+        # Build expressions using pre-computed coefficients
+        EuG = (gen_revenue_const + 
+            S_coeff_G * self.variables.S * self.variables.M + 
+            M_coeff_G * self.variables.M)
+
+        EuL = (load_revenue_const + 
+            S_coeff_L * self.variables.S * self.variables.M + 
+            M_coeff_L * self.variables.M)
+
+        # CVaR calculations
+        CVaRG = self.variables.zeta_G - (1/(1-self.data.alpha)) * eta_G_sum
+        CVaRL = self.variables.zeta_L - (1/(1-self.data.alpha)) * eta_L_sum
 
         # Calculate utilities with risk aversion
-        UG = (1-self.data.A_G) *  EuG + self.data.A_G * CVaRG
-        UL = (1-self.data.A_L) *  EuL + self.data.A_L * CVaRL
-
-        #Build Utiltiy Functions 
-
-    
+        UG = (1-self.data.A_G) * EuG + self.data.A_G * CVaRG
+        UL = (1-self.data.A_L) * EuL + self.data.A_L * CVaRL
 
         self.model.update()
 
-        # Normal Objective function 
-        #objective = (UG - self.data.Zeta_G)**Beta_G * (UL-self.data.Zeta_L)**self.data.Beta_L
-        #self.model.setObjective(objective,sense = gp.GRB.MAXIMIZE)
-        
-        # Set logarithmic objective
-        if self.data.Beta_G == 1:
-            self.model.setObjective((UG - self.data.Zeta_G),GRB.MAXIMIZE)
-            self.model.addConstr(UL - self.data.Zeta_L >= 0, "UL_non_negative")
+        # Set logarithmic objective (same logic as before)
+        if self.data.tau_G == 1:
+            self.model.setObjective((UG - self.data.Zeta_G), GRB.MAXIMIZE)
+            self.model.addConstr(UL - self.data.Zeta_L >= 1e-6, "UL_non_negative")
             print("sheep")
-        elif self.data.Beta_L == 1:
-            self.model.setObjective((UL-self.data.Zeta_L),GRB.MAXIMIZE)
-            self.model.addConstr(UG - self.data.Zeta_G >= 0, "UG_non_negative")
+        elif self.data.tau_L == 1:
+            self.model.setObjective((UL - self.data.Zeta_L), GRB.MAXIMIZE)
+            self.model.addConstr(UG - self.data.Zeta_G >= 1e-6, "UG_non_negative")
             print("wolf")
         else:
             # Link auxiliary variables to expressions
             self.model.addConstr(self.variables.arg_G == (UG - self.data.Zeta_G), "arg_G_constr")
             self.model.addConstr(self.variables.arg_L == (UL - self.data.Zeta_L), "arg_L_constr")
             self.model.setObjective(
-            ( self.data.Beta_G * self.variables.log_arg_G + self.data.Beta_L * self.variables.log_arg_L),
-            GRB.MAXIMIZE) 
-
+                (self.data.tau_G * self.variables.log_arg_G + self.data.tau_L * self.variables.log_arg_L),
+                GRB.MAXIMIZE
+            )
             self.model.update()
             print("goat")
 
@@ -640,7 +712,8 @@ class ContractNegotiation:
         self.model.Params.NonConvex = 2
         self.model.Params.FeasibilityTol = 1e-6
         self.model.Params.OutputFlag = 0  # Suppress output
-        self.model.Params.TimeLimit = 120
+        self.model.Params.TimeLimit = 420  # Set time limit to 7 minutes
+
         self.model.Params.ObjScale   = 1e-6
         #self.model.Params.NumericFocus = 1
         
@@ -666,8 +739,8 @@ class ContractNegotiation:
             self.results.contract_amount_hour = self.results.gamma * self.data.generator_contract_capacity  # hourly
 
         else:
-            self.results.contract_amount = self.variables.M.x  # Convert to GWh/year
-            self.results.contract_amount_hour = self.results.contract_amount /8760 * 1e3  # Convert to GWh/hour
+            self.results.contract_amount = self.variables.M.x  # GWh/year
+            self.results.contract_amount_hour = self.results.contract_amount / 8760 * 1e3  # Convert GWh/year to MWh/hour
         self.results.capture_price = self.data.Capture_price_L_avg
 
         # Save their 'actual' values based on the true distribution 
@@ -727,7 +800,7 @@ class ContractNegotiation:
         print( self.results.utility_G)
         print( self.results.utility_L)
 
-        self.results.Nash_Product = ((self.results.utility_G - self.data.Zeta_G) * (self.results.utility_L - self.data.Zeta_L))
+        self.results.Nash_Product = ((self.results.utility_G - self.data.Zeta_G)**(0.5) * (self.results.utility_L - self.data.Zeta_L)**(0.5))
         # Save accumulated revenues
         self.results.earnings_G = EuG + SMG
         self.results.earnings_L = EuL + SML
@@ -741,7 +814,7 @@ class ContractNegotiation:
         if self.model.status == GRB.OPTIMAL:
             self._save_results()
             #self.scipy_optimization()
-            self.display_results()
+            #self.display_results()
             #self.scipy_display_results()
 
             if self.data.Barter == True:
@@ -766,20 +839,20 @@ class ContractNegotiation:
     def display_results(self):
         """Display optimization results."""
         print("\n-------------------   RESULTS GUROBI  -------------------")
-        print(f"Optimal Objective Value (Log): {self.results.objective_value}")
-        print(f"Optimal Objective Value {np.exp(self.results.objective_value)}")
-        print(f"Nash Product with optimal S and M: {self.results.Nash_Product}")
-        print(f"Optimal Strike Price(EUR/MWh): {self.results.strike_price}")
+        print(f"Optimal Objective Value (Log): {self.results.objective_value:.5f}")
+        print(f"Optimal Objective Value {np.exp(self.results.objective_value):.5f}")
+        print(f"Nash Product with optimal S and M: {self.results.Nash_Product:.5f}")
+        print(f"Optimal Strike Price(EUR/MWh): {self.results.strike_price:.5f}")
         if self.contract_type == 'PAP':
-            print(f"Optimal Contract Capacity (%): {self.results.gamma}")
-        print(f"Optimal Contract Amount(GWh/year): {self.results.contract_amount}")
-        print(f"Optimal Contract Amount(MWh): {self.results.contract_amount_hour}")
-        print(f"Optimal Utility for G: {self.results.utility_G}")
-        print(f"Optimal Utility for L: {self.results.utility_L}")
-        print(f"Threat Point G: {self.data.Zeta_G}")
-        print(f"Threat Point L: {self.data.Zeta_L}")
-        print(f"Delta G: {self.results.utility_G - self.data.Zeta_G}")
-        print(f"Delta L: {self.results.utility_L - self.data.Zeta_L}")
+            print(f"Optimal Contract Capacity (%): {self.results.gamma:.5f}")
+        print(f"Optimal Contract Amount(GWh/year): {self.results.contract_amount:.5f}")
+        print(f"Optimal Contract Amount(MWh): {self.results.contract_amount_hour:.5f}")
+        print(f"Optimal Utility for G: {self.results.utility_G:.5f}")
+        print(f"Optimal Utility for L: {self.results.utility_L:.5f}")
+        print(f"Threat Point G: {self.data.Zeta_G:.5f}")
+        print(f"Threat Point L: {self.data.Zeta_L:.5f}")
+        print(f"Delta G: {self.results.utility_G - self.data.Zeta_G:.5f}")
+        print(f"Delta L: {self.results.utility_L - self.data.Zeta_L:.5f}")
 
     def manual_optimization(self, plot=False, filename=None):
         """
@@ -1176,8 +1249,8 @@ class ContractNegotiation:
             price_L = self.data.price_L,
             A_G=self.data.A_G,
             A_L=self.data.A_L,
-            Beta_G=self.data.Beta_G,
-            Beta_L=self.data.Beta_L,
+            tau_G=self.data.tau_G,
+            tau_L=self.data.tau_L,
             net_earnings_no_contract_G=self.data.net_earnings_no_contract_priceG_G,
             net_earnings_no_contract_L=self.data.net_earnings_no_contract_priceL_L,
             Zeta_G=self.data.Zeta_G,

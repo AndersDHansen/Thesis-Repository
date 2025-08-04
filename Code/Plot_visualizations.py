@@ -54,7 +54,7 @@ def load_sensitivity_results(contract_type,time_horizon, num_scenarios):
         "production_sensitivity_mean", "production_sensitivity_std",  # Production sensitivity
         "load_sensitivity_mean", "load_sensitivity_std",  # Load sensitivity
         "gen_capture_rate_sensitivity", "load_capture_rate_sensitivity",
-        "negotiation_power_sensitivity", "negotiation_earnings_sensitivity", "load_ratio_sensitivity" # beta results are negotation results
+        "negotiation_power_sensitivity", "negotiation_earnings_sensitivity", "load_ratio_sensitivity" # tau results are negotation results
         ]
     
     result_names_risk = ["risk_sensitivity", "risk_earnings_sensitivity"]
@@ -127,14 +127,14 @@ def load_boundary_results(sensitivity,contract_type,time_horizon, num_scenarios)
         return []
 
 def main():
-    global time_horizon, num_scenarios, A_G, A_L, Beta_L, Beta_G, Barter, contract_type
+    global time_horizon, num_scenarios, A_G, A_L, tau_L, tau_G, Barter, contract_type
     # Configuration for loading data 
-    time_horizon = 5  # Must match the scenarios that were generated
-    num_scenarios = 500  # Must match the scenarios that were generated
-    A_L = 0.5  # Initial risk aversion
+    time_horizon = 20  # Must match the scenarios that were generated
+    num_scenarios = 5000  # Must match the scenarios that were generated
+    A_L = 1  # Initial risk aversion
     A_G = 0.5  # Initial risk aversion
-    Beta_L = 0.5  # Asymmetry of power between load generator [0,1]
-    Beta_G = 1-Beta_L  # Asymmetry of power between generation provider [0,1] - 1-beta_L    
+    tau_L = 0.5  # Asymmetry of power between load generator [0,1]
+    tau_G = 1-tau_L  # Asymmetry of power between generation provider [0,1] - 1-tau_L
     Barter = False  # Whether to relax the problem (Mc Cormick's relaxation)
     contract_type = "Baseload" # Either "Baseload" or "PAP"
 
@@ -145,20 +145,20 @@ def main():
         num_scenarios=num_scenarios,
         A_G=A_G,
         A_L=A_L,
-        Beta_L=Beta_L,
-        Beta_G=Beta_G,
+        tau_L=tau_L,
+        tau_G=tau_G,
         Barter=Barter,
         contract_type=contract_type
        
     )    # InputData object is now created in load_data()    # Define risk aversion parameters for both objective functions
     
     params = {
-        'A_G_values': np.array([0,0.05,0.1,0.25,0.5,0.75,0.9,1]),  # A in [0,1]
-        'A_L_values':np.array([0,0.05,0.1,0.25,0.5,0.75,0.9,1]),
+        'A_G_values': np.array([0,0.1,0.25,0.5,0.75,0.9,1]),  # A in [0,1]
+        'A_L_values':np.array([0,0.1,0.25,0.5,0.75,0.9,1]),
     }
     fixed_A_G=0.5 # Fixed at middle value for plotting purposes
     # Load scenarios from CSV files
-    scenario_pattern = f"{{type}}_scenarios_{time_horizon}y_{num_scenarios}s.csv"
+    scenario_pattern = f"{{type}}_scenarios_reduced_{time_horizon}y_{num_scenarios}s.csv"
 
     # Load price scenarios
     prices_df = pd.read_csv(f"Code/scenarios/{scenario_pattern.format(type='price')}", index_col=0)
@@ -261,7 +261,7 @@ def main():
 
     plotter._plot_3D_sensitivity_results(sensitivity_type='risk', filename='risk_3d_plot.png')
 
-    plotter._nego_plot_earnings_boxplot(filename=os.path.join(plots_folder, negotation_earnings_file))
+    #plotter._nego_plot_earnings_boxplot(filename=os.path.join(plots_folder, negotation_earnings_file))
     plotter._plot_parameter_sensitivity_spider(bias=False,filename=os.path.join(plots_folder, spider_file))
     # Risk sensitivity plots - save to both locations
     plotter._plot_sensitivity_results_heatmap('risk',filename=os.path.join(plots_folder, risk_file))
@@ -282,17 +282,18 @@ def main():
     #Radar Chart 
 
     # Price bias sensitivity plots - save to both locations
-    plotter._plot_sensitivity_results_heatmap('price_bias',filename=os.path.join(plots_folder, price_bias_file))
+    # price_bias or production_bias 
+    plotter._plot_sensitivity_results_heatmap('production_bias',filename=os.path.join(plots_folder, production_bias_file))
     plotter._plot_sensitivity_results_heatmap('price_bias',filename=os.path.join(DROPBOX_DIR, price_bias_file))
 
     # Production bias sensitivity plots - save to both locations
-    plotter._plot_sensitivity_results_heatmap('production_bias',filename=os.path.join(plots_folder, production_bias_file))
-    plotter._plot_sensitivity_results_heatmap('production_bias',filename=os.path.join(DROPBOX_DIR, production_bias_file))
+    #plotter._plot_sensitivity_results_heatmap('production_bias',filename=os.path.join(plots_folder, production_bias_file))
+    #plotter._plot_sensitivity_results_heatmap('production_bias',filename=os.path.join(DROPBOX_DIR, production_bias_file))
 
 
     # Plot negotiation sensitivity - save to both locations
-    plotter._plot_sensitivity_results_line('negotiation',filename=os.path.join(plots_folder, negotiation_sensitivity_file))
-    plotter._plot_sensitivity_results_line('negotiation',filename=os.path.join(DROPBOX_DIR, negotiation_sensitivity_file))
+    #plotter._plot_sensitivity_results_line('negotiation',filename=os.path.join(plots_folder, negotiation_sensitivity_file))
+    #plotter._plot_sensitivity_results_line('negotiation',filename=os.path.join(DROPBOX_DIR, negotiation_sensitivity_file))
 
     """ 
     # For production sensitivity
@@ -311,9 +312,9 @@ def main():
     plotter._plot_sensitivity('Load_Change', 'Load',filename=os.path.join(plots_folder, load_file))
     """
 
-    #plotter._plot_no_contract_boundaries(sensitivity_type='price', filename=os.path.join(plots_folder, boundary_file_price))
+    plotter._plot_no_contract_boundaries(sensitivity_type='price', filename=os.path.join(plots_folder, boundary_file_production))
     #plotter._plot_no_contract_boundaries(filename=os.path.join(DROPBOX_DIR, boundary_file))
-    #plotter._plot_no_contract_boundaries_all(sensitivity_type='price', filename=os.path.join(plots_folder, boundary_file_all_price))
+    plotter._plot_no_contract_boundaries_all(sensitivity_type='price', filename=os.path.join(plots_folder, boundary_file_all_production))
     #plotter._plot_no_contract_boundaries_all(filename=os.path.join(DROPBOX_DIR, boundary_file_all)) 
     print("All plots generated successfully!")
 

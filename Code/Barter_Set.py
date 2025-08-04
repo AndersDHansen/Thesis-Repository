@@ -3,9 +3,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from scipy.stats import linregress
 from utils import calculate_cvar_left, _left_tail_mask
-from scipy.signal import find_peaks
 from scipy.interpolate import interp1d
-
+import copy
 
 
 class Barter_Set:
@@ -18,11 +17,11 @@ class Barter_Set:
         #self.BS_strike_max = data.strikeprice_max+ 20*1e-3
 
         if self.data.contract_type == "PAP":
-            self.BS_strike_min = self.data.SR_star_new
-            self.BS_strike_max = self.data.SU_star_new
+            self.BS_strike_min = self.data.SR_star_new #-1*1e-3
+            self.BS_strike_max = self.data.SU_star_new #+ 1*1e-3
         else:
-            self.BS_strike_min =  self.data.SR_star_new -1*1e-3
-            self.BS_strike_max =  self.data.SU_star_new + 1*1e-3
+            self.BS_strike_min =  self.data.SR_star_new #-1*1e-3
+            self.BS_strike_max =  self.data.SU_star_new #+ 1*1e-3
         print(f"{self.BS_strike_min*1e3:.4f} EUR/MWh")
         print(f"{self.BS_strike_max*1e3:.4f} EUR/MWh")
 

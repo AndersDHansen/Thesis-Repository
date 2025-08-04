@@ -7,7 +7,7 @@ from matplotlib.patches import Polygon
 import os
 from dataloader import load_data, InputData
 from visualization import Plotting_Class
-from sensitivity_analysis import (run_capture_price_analysis, run_price_bias_sensitivity_analysis,run_risk_sensitivity_analysis, run_production_bias_sensitivity_analysis, 
+from sensitivity_analysis import (run_capture_price_analysis, run_no_contract_boundary_analysis_production, run_price_bias_sensitivity_analysis,run_risk_sensitivity_analysis, run_production_bias_sensitivity_analysis, 
                                   run_capture_rate_sensitivity_analysis, run_production_sensitivity_analysis, 
                                   run_no_contract_boundary_analysis_price, run_negotiation_power_sensitivity_analysis,
                                   run_load_scenario_sensitivity_analysis,run_load_capture_rate_sensitivity_analysis,
@@ -16,6 +16,8 @@ from contract_negotiation import ContractNegotiation
 from utils import ForecastProvider
 import copy
 import json
+import timeit
+
 
 # Global variable definition (module level)
 DROPBOX_DIR = r'C:\Users\ande7\Dropbox\Apps\Overleaf\Thesis - Nash Bargaining\Figures'
@@ -24,7 +26,7 @@ results_folder = os.path.join(os.path.dirname(__file__), 'Results')
 
 
 def run_contract_negotiation_sensitivity(input_data: InputData, 
-                           A_G_values: np.ndarray, A_L_values: np.ndarray, Beta_L_values: np.ndarray,Beta_G_values: np.ndarray) -> tuple:
+                           A_G_values: np.ndarray, A_L_values: np.ndarray, tau_L_values: np.ndarray, tau_G_values: np.ndarray) -> tuple:
     """Run contract negotiation and sensitivity analysis with given OPF results."""
     
     # Store original data
@@ -102,23 +104,23 @@ def run_contract_negotiation_sensitivity(input_data: InputData,
 
         # Production boundary analysis
         boundary_data_input_production = copy.deepcopy(original_data)
-        boundary_results_df_production = run_no_contract_boundary_analysis_price(boundary_data_input_production)
+        boundary_results_df_production = run_no_contract_boundary_analysis_production(boundary_data_input_production)
     else:
         boundary_results_df_price = pd.DataFrame()
         boundary_results_df_production = pd.DataFrame()
 
     # Run sensitivity analysis with different negotations powers
-    beta_input = copy.deepcopy(original_data)
-    beta_sensitivity_results, beta_earnings_sensitivity = run_negotiation_power_sensitivity_analysis(
-        beta_input, 
-        Beta_G_values, 
-        Beta_L_values
+    tau_input = copy.deepcopy(original_data)
+    tau_sensitivity_results, tau_earnings_sensitivity = run_negotiation_power_sensitivity_analysis(
+        tau_input, 
+        tau_G_values, 
+        tau_L_values
     )
 
     # Sensitivity analysis for Load / Generation ratio
     load_generation_ratio_input = copy.deepcopy(original_data)
-    load_generation_ratio_sensitivity_results = run_load_generation_ratio_sensitivity_analysis(load_generation_ratio_input)
-
+    #load_generation_ratio_sensitivity_results = run_load_generation_ratio_sensitivity_analysis(load_generation_ratio_input)
+    load_generation_ratio_sensitivity_results = pd.DataFrame()  # Result is empty for load generation ratio sensitivity analysis so we create an empty DataFrame
 
 
 
@@ -145,8 +147,8 @@ def run_contract_negotiation_sensitivity(input_data: InputData,
         "load_capture_rate_sensitivity": load_capture_rate_sensitivity_results,
         "boundary_results_price": boundary_results_df_price,
         "boundary_results_production": boundary_results_df_production,
-        "negotiation_power_sensitivity": beta_sensitivity_results,
-        "negotiation_earnings_sensitivity": beta_earnings_sensitivity,
+        "negotiation_power_sensitivity": tau_sensitivity_results,
+        "negotiation_earnings_sensitivity": tau_earnings_sensitivity,
         "load_ratio_sensitivity": load_generation_ratio_sensitivity_results,
     }
 
@@ -159,11 +161,12 @@ def run_contract_negotiation(input_data: InputData):
         
         # Run base case with middle values
         base_input = copy.deepcopy(original_data)
-      
-       
-        
+
+        start_time = timeit.default_timer()
         contract_model = ContractNegotiation(base_input)
         contract_model.run()
+        end_time = timeit.default_timer()
+        print(f"Contract negotiation completed in {end_time - start_time:.2f} seconds.")
         base_results = copy.deepcopy(contract_model.results)
 
         print(" Running Capture Price ...")
@@ -186,7 +189,7 @@ def save_results_to_csv(results_dict, contract_type,time_horizon, num_scenarios)
         "production_sensitivity_mean", "production_sensitivity_std",  # Production sensitivity
         "load_sensitivity_mean", "load_sensitivity_std",  # Load sensitivity
         "gen_capture_rate_sensitivity", "load_capture_rate_sensitivity",
-        "negotiation_power_sensitivity", "negotiation_earnings_sensitivity", "load_ratio_sensitivity" # beta results are negotation results
+        "negotiation_power_sensitivity", "negotiation_earnings_sensitivity", "load_ratio_sensitivity" # tau results are negotation results
         ]
     
     result_names_risk = ["risk_sensitivity", "risk_earnings_sensitivity",'boundary_results_price', 'boundary_results_production']
@@ -246,41 +249,42 @@ def save_results_to_csv(results_dict, contract_type,time_horizon, num_scenarios)
         else:
             print(f"Skipping {result_name}: not a DataFrame")
 
-
  
 def main():      # Define simulation parameters
-    time_horizon = 5  # Must match the scenarios that were generated
-    num_scenarios = 1000  # Must match the scenarios that were generated
+    time_horizon = 20  # Must match the scenarios that were generated
+    num_scenarios = 5000  # Must match the scenarios that were generated
     global A_L , A_G, boundary, sensitivity , Barter
-    A_L = 0.5  # Initial risk aversion
-    A_G = 0.5  # Initial risk aversion    
-    Beta_L = 0.5  # Asymmetry of power between load generator [0,1]
-    Beta_G = 1-Beta_L  # Asymmetry of power between generation provider [0,1] - 1-beta_L
+    A_L = 1  # Initial risk aversion
+    A_G = 0  # Initial risk aversion
+    
+    tau_L = 0.5  # Asymmetry of power between load generator [0,1]
+    tau_G = 1-tau_L  # Asymmetry of power between generation provider [0,1] - 1-tau_L
     Barter = False  # Whether to relax the problem (Mc Cormick's relaxation)
     contract_type = "Baseload" # Either "Baseload" or "PAP"
     sensitivity = False  # Whether to run sensitivity analysis
-    num_sensitivity = 6 # Number of sensitivity analysis points for Beta_L and Beta_G ( and A_G and A_L)  
-    boundary = False  # Whether to run boundary analysis ( it takes awhile to run, so set to False for quick tests)
+    num_sensitivity = 6 # Number of sensitivity analysis points for tau_L and tau_G ( and A_G and A_L)  
+    # Boundary analysis only on 20 years
+    boundary = True  # Whether to run boundary analysis ( it takes awhile to run, so set to False for quick tests)
     print("Loading data and preparing for simulation...")
     input_data = load_data(
         time_horizon=time_horizon,
         num_scenarios=num_scenarios,
         A_G=A_G,
         A_L=A_L,
-        Beta_L=Beta_L,
-        Beta_G=Beta_G,
+        tau_L=tau_L,
+        tau_G=tau_G,
         Barter=Barter,
         contract_type=contract_type
     )    # InputData object is now created in load_data()    # Define risk aversion parameters for both objective functions
     params = {
-        'A_G_values': np.array([0,0.05,0.1,0.25,0.5,0.75,0.9,1]),  # A in [0,1]
-        'A_L_values':np.array([0,0.05,0.1,0.25,0.5,0.75,0.9,1]),  # A in [0,1]
-        'Beta_L': np.linspace(0,1,num_sensitivity),  # Asymmetry of power between load generator [0,1]
-        'Beta_G': np.ones(num_sensitivity)- np.linspace(0,1,num_sensitivity),  # Asymmetry of power between generation provider [
+        'A_G_values': np.array([0,0.1,0.25,0.5,0.75,0.9,1]),  # A in [0,1]
+        'A_L_values':np.array([0,0.1,0.25,0.5,0.75,0.9,1]),  # A in [0,1]
+        'tau_L': np.linspace(0,1,num_sensitivity),  # Asymmetry of power between load generator [0,1]
+        'tau_G': np.ones(num_sensitivity)- np.linspace(0,1,num_sensitivity),  # Asymmetry of power between generation provider [
     }
 
     # Load scenarios from CSV files
-    scenario_pattern = f"{{type}}_scenarios_{time_horizon}y_{num_scenarios}s.csv"
+    scenario_pattern = f"{{type}}_scenarios_reduced_{time_horizon}y_{num_scenarios}s.csv"
 
     # Load price scenarios
     prices_df = pd.read_csv(f"Code/scenarios/{scenario_pattern.format(type='price')}", index_col=0)
@@ -299,8 +303,10 @@ def main():      # Define simulation parameters
     LR_df = pd.read_csv(f"Code/scenarios/{scenario_pattern.format(type='load_capture_rate')}", index_col=0)
     LR_df.index = pd.to_datetime(LR_df.index)
 
-    provider = ForecastProvider(prices_df, prod_df,CR_df,load_df,LR_df, prob=1/prices_df.shape[1])
-    
+    prob_df = pd.read_csv(f"Code/scenarios/{scenario_pattern.format(type='probabilities')}", index_col=0)
+
+    provider = ForecastProvider(prices_df, prod_df,CR_df,load_df,LR_df, prob=prob_df.values.flatten())
+    print(LR_df.shape)
     # Load data from provider into input_data
     input_data.load_data_from_provider(provider)
     
@@ -312,8 +318,8 @@ def main():      # Define simulation parameters
             copy.deepcopy(input_data),
             params['A_G_values'],
             params['A_L_values'],
-            params['Beta_L'],
-            params['Beta_G']   
+            params['tau_L'],
+            params['tau_G']
         )
         save_results_to_csv(results, contract_type,time_horizon, num_scenarios)
     else:

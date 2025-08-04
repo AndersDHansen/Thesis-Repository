@@ -143,7 +143,6 @@ class Plotting_Class:
             else:
                 plt.show()
 
-
     def _plot_sensitivity_results_heatmap(self,sensitivity_type,filename=None):
 
         """
@@ -203,7 +202,7 @@ class Plotting_Class:
         # Metrics to plot
         metrics = ['StrikePrice', 'ContractAmount']
         if is_pap and has_gamma:
-            units = ['€/MWh', '%,MW']
+            units = ['€/MWh', 'MW']
         else:
             units = ['€/MWh', 'MWh']
             #results['ContractAmount/year'] = results['ContractAmount'].round(2)  # Convert to MWh
@@ -314,15 +313,15 @@ class Plotting_Class:
     def _plot_sensitivity_results_line(self, sensitivity_type, filename=None):
         """
         Generalized function to plot sensitivity analysis results for 1D parameter sweeps.
-        For negotiation: uses Beta_L as parameter.
+        For negotiation: uses tau_L as parameter.
         For alpha: uses 'alpha' as parameter (single value, not Alpha_L/Alpha_G).
         """
         # Configuration dictionary for different sensitivity types
         config = {
             'negotiation': {
                 'df': self.negotiation_sensitivity_df,
-                'param_col': 'Beta_L',
-                'xlabel': 'Load Negotiation Power $\\beta_L$',
+                'param_col': 'tau_L',
+                'xlabel': 'Load Negotiation Power $\\tau_L$',
                 'title': 'Negotiation Power Sensitivity on Strike Price and Contract Amount'
             }
         }
@@ -943,9 +942,9 @@ class Plotting_Class:
         ylim = (-31, 31)
 
         if sensitivity_type == "price":
-            boundary_results = self.boundary_results_df_price
+            boundary_results = self.boundary_results_price
         elif sensitivity_type == "production":
-            boundary_results = self.boundary_results_df_production
+            boundary_results = self.boundary_results_production
 
         
         
@@ -954,8 +953,13 @@ class Plotting_Class:
             scenario = result['scenario']
 
             boundary_points = np.array(result['boundary_points'])
-
+            if len(boundary_points) < 2:
+                print(f"Skipping scenario {scenario['label']} due to insufficient boundary points.")
+                continue
             lowest_boundary = self._extract_lowest_boundary(boundary_points)
+            if lowest_boundary is None or len(lowest_boundary) < 2:
+                print(f"Skipping scenario {scenario['label']} due to insufficient boundary points after filtering.")
+                continue
             n_space = np.linspace(xlim[0]*1e-2, xlim[1]*1e-2, 100)
             # Create and fit the regression model
             X = lowest_boundary[:, 0].reshape(-1, 1)  # X needs to be 2D for sklearn
@@ -1005,19 +1009,20 @@ class Plotting_Class:
             # Helper method for the comprehensive visualization
 
         if sensitivity_type == "price":
-            self.boundary_results = self.boundary_results_df_price
+            self.boundary_results = self.boundary_results_price
         elif sensitivity_type == "production":
-            self.boundary_results = self.boundary_results_df_production
+            self.boundary_results = self.boundary_results_production
 
 
-        def _plot_boundary_on_axis( ax, result):
+        def _plot_boundary_on_axis(ax, result):
             """Plot a single boundary on a given axis."""
             scenario = result['scenario']
             lowest_boundary = self._extract_lowest_boundary(result['boundary_points'])
-            
-            if len(lowest_boundary) < 2:
+
+            if lowest_boundary is None or len(lowest_boundary) < 2:
+                print(f"Skipping scenario {scenario['label']} due to insufficient boundary points after filtering.")
                 return
-                
+
             # Fit linear regression
             X = lowest_boundary[:, 0].reshape(-1, 1)
             y = lowest_boundary[:, 1]
@@ -1117,6 +1122,9 @@ class Plotting_Class:
                 """
                 boundary_points = np.array(boundary_points)
                 # Round KL values slightly to avoid floating-point precision issues
+                if len(boundary_points) < 2:
+                    print(f"Skipping scenario due to insufficient boundary points.")
+                    return 
                 boundary_points[:, 0] = np.round(boundary_points[:, 0], 6)
                 
                 
@@ -1187,14 +1195,14 @@ class Plotting_Class:
         no_contract_df = pd.DataFrame({
             'Revenue_G': no_contract_g,
             'Revenue_L': no_contract_l,
-            'A_L': 'No Contract'  # Assign a string label for the category
+            'A_L': 'No \n Contract'  # Assign a string label for the category
         })
 
         #Prepare Capture Price Data
         CP_df = pd.DataFrame({
             'Revenue_G': self.CP_earnings_df["Revenue_G_CP"],
             'Revenue_L': self.CP_earnings_df["Revenue_L_CP"],
-            'A_L': 'Capture Price\n& AL=0.5'  # Assign a string label for the category
+            'A_L': 'Capture Price'  # Assign a string label for the category
         })
 
 
@@ -1413,14 +1421,14 @@ class Plotting_Class:
             Path to save the plot. If None, the plot will be displayed.
         """
         earnings_df = self.negotiation_earnings_df
-        unique_beta_g = earnings_df["Beta_G"].unique()
+        unique_tau_g = earnings_df["tau_G"].unique()
 
         # Get three evenly spaced positions
-        positions = np.linspace(0, len(unique_beta_g)-1, 4, dtype=int)[1:-1]
-        selected_beta_g = np.round(unique_beta_g[positions],2)
+        positions = np.linspace(0, len(unique_tau_g)-1, 4, dtype=int)[1:-1]
+        selected_tau_g = np.round(unique_tau_g[positions],2)
 
-        # Filter the DataFrame for these Beta_G values
-        df_filtered = earnings_df[earnings_df["Beta_G"].isin(selected_beta_g)]
+        # Filter the DataFrame for these tau_G values
+        df_filtered = earnings_df[earnings_df["tau_G"].isin(selected_tau_g)]
 
         AL_used = df_filtered['A_L'].unique()[0]  # Assuming A_L is constant for the filtered data
         AG_used = df_filtered['A_G'].unique()[0]  # Assuming A_G is constant for the filtered data
@@ -1432,13 +1440,13 @@ class Plotting_Class:
         no_contract_df = pd.DataFrame({
             'Revenue_G': no_contract_g,
             'Revenue_L': no_contract_l,
-            'Beta_G': 'No Contract'  # Assign a string label for the category
+            'tau_G': 'No Contract'  # Assign a string label for the category
         })
 
         CP_df = pd.DataFrame({
             'Revenue_G': self.CP_earnings_df["Revenue_G_CP"],
             'Revenue_L': self.CP_earnings_df["Revenue_L_CP"],
-            'Beta_G': 'Capture Price'  # Assign a string label for the category
+            'tau_G': 'Capture Price'  # Assign a string label for the category
         })
 
         # Combine the contract and no-contract data
@@ -1447,7 +1455,7 @@ class Plotting_Class:
         plot_data = pd.concat([no_contract_df,CP_df,df_filtered], ignore_index=True)
             
         # Define the order for the x-axis categories
-        nego_to_plot = sorted(selected_beta_g)
+        nego_to_plot = sorted(selected_tau_g)
         plot_order = nego_to_plot.insert(0,'No Contract')  # Add 'No Contract' at the beginning
         
         
@@ -1459,11 +1467,11 @@ class Plotting_Class:
         # 1. Add violin plots behind boxplots for Generator Revenue
         sns.violinplot(
             data=plot_data,
-            x='Beta_G',
+            x='tau_G',
             y='Revenue_G',
             order=plot_order,
             ax=ax_G,
-            hue="Beta_G", 
+            hue="tau_G", 
             hue_order=plot_order,
             legend=False,
             alpha=0.3,
@@ -1475,11 +1483,11 @@ class Plotting_Class:
         # 2. Add boxplots on top for Generator Revenue
         box_G = sns.boxplot(
             data=plot_data,
-            x='Beta_G',
+            x='tau_G',
             y='Revenue_G',
             order=plot_order,
             ax=ax_G,
-            hue="Beta_G",
+            hue="tau_G",
             hue_order=plot_order,
             legend=False,
             width=0.5,
@@ -1490,11 +1498,11 @@ class Plotting_Class:
         # 3. Add violin plots behind boxplots for Load Revenue
         sns.violinplot(
             data=plot_data,
-            x='Beta_G',
+            x='tau_G',
             y='Revenue_L',
             order=plot_order,
             ax=ax_L,
-            hue = 'Beta_G',
+            hue = 'tau_G',
             hue_order=plot_order,
             legend=False,
             alpha=0.3,
@@ -1506,11 +1514,11 @@ class Plotting_Class:
         # 4. Add boxplots on top for Load Revenue
         box_L = sns.boxplot(
             data=plot_data,
-            x='Beta_G',
+            x='tau_G',
             y='Revenue_L',
             order=plot_order,
             ax=ax_L,
-            hue= 'Beta_G',
+            hue= 'tau_G',
             hue_order=plot_order,
             legend=False,
             width=0.5,
@@ -1549,12 +1557,12 @@ class Plotting_Class:
         """
         # Set titles and labels
         ax_G.set_title(f'Generator Revenue',fontsize=14)
-        ax_G.set_xlabel('Negotiation Power $(Beta_G)$',fontsize=13)
+        ax_G.set_xlabel('Negotiation Power $(tau_G)$',fontsize=13)
         ax_G.set_ylabel('Generator Revenue (Mio EUR)',fontsize=13)
         ax_G.grid(True, linestyle='--', alpha=0.7, axis='y')
         
         ax_L.set_title(f'Load Revenue',fontsize=14)
-        ax_L.set_xlabel('Negotiation Power $(Beta_G)$', fontsize=13)
+        ax_L.set_xlabel('Negotiation Power $(tau_G)$', fontsize=13)
         ax_L.set_ylabel('Load Revenue (Mio EUR)',fontsize=13)
         ax_L.grid(True, linestyle='--', alpha=0.7, axis='y')
 

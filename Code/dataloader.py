@@ -1,6 +1,9 @@
 
 import numpy as np
 
+from sklearn_extra.cluster import KMedoids
+from sklearn.datasets import make_blobs
+import matplotlib.pyplot as plt
 class InputData:
     """
     Class to store and manage input data for power system simulations.
@@ -21,8 +24,8 @@ class InputData:
         gamma_max: float,
         A_L: float,
         A_G: float,
-        Beta_L: float,
-        Beta_G: float,  
+        tau_L: float,
+        tau_G: float,  
         K_L_price: float, 
         K_G_price: float,
         K_L_prod: float,
@@ -51,8 +54,8 @@ class InputData:
         # Risk and price parameters
         self.A_L = A_L
         self.A_G = A_G
-        self.Beta_L = Beta_L
-        self.Beta_G = Beta_G
+        self.tau_L = tau_L
+        self.tau_G = tau_G
         self.K_L_price = K_L_price
         self.K_G_price = K_G_price
         self.K_L_prod = K_L_prod
@@ -73,6 +76,8 @@ class InputData:
         self.capture_rate = provider.capture_rate_matrix()
         self.load_scenarios = provider.load_matrix()
         self.load_CR = provider.load_capture_rate_matrix()
+        self.PROB = provider._prob
+
         
         if hasattr(self, 'price_true') and self.price_true is not None:
             n_time = self.price_true.shape[0]
@@ -83,21 +88,25 @@ class InputData:
             self.SCENARIOS_L = list(range(n_scenarios))
             self.NUM_SCENARIOS = n_scenarios
             
-            self.PROB = np.ones(n_scenarios) / n_scenarios
             
             print(f"Data loaded: {n_time} time periods, {n_scenarios} scenarios")
         
         # Set maximum strike price
         Capture_price_L = self.price_true * self.load_CR
         Capture_price_L_avg = Capture_price_L.mean().mean()
-        #self.strikeprice_max = Capture_price_L_avg * 1.1
+        self.strikeprice_max = Capture_price_L_avg * 1.2
         
         print(f"Strike price bounds: {self.strikeprice_min:.6f} to {self.strikeprice_max:.6f}")
          
         return self
+    
+
+
+
+        return 
 
 def load_data(time_horizon: int, num_scenarios: int, A_G: float, A_L: float, 
-              Beta_L: float, Beta_G: float, Barter: bool = True, 
+              tau_L: float, tau_G: float, Barter: bool = True, 
               contract_type: str = "baseload") -> InputData:
     """Load system data and create initial parameters."""
     
@@ -128,7 +137,7 @@ def load_data(time_horizon: int, num_scenarios: int, A_G: float, A_L: float,
         TIME=TIME,
         NUM_SCENARIOS=num_scenarios,
         SCENARIOS=SCENARIOS,
-        PROB=PROB,  #
+        PROB=PROB,  # ✅ Now an array
         generator_contract_capacity=generator_contract_capacity,
         retail_price=retail_price, 
         strikeprice_min=strikeprice_min,
@@ -138,8 +147,8 @@ def load_data(time_horizon: int, num_scenarios: int, A_G: float, A_L: float,
         gamma_max=gamma_max,
         A_L=A_L,
         A_G=A_G,
-        Beta_L=Beta_L,
-        Beta_G=Beta_G,
+        tau_L=tau_L,
+        tau_G=tau_G,
         K_L_price=K_L,
         K_G_price=K_G,
         K_L_prod=K_L,
