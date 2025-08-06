@@ -52,6 +52,11 @@ class Plotting_Class:
         self.negotiation_sensitivity_df = negotiation_sensitivity_df
         self.negotiation_earnings_df = negotiation_earnings_df
         self.load_ratio_df = load_ratio_df
+        # plotting styless
+        self.legendsize = 12
+        self.labelsize = 14
+        self.titlesize = 16
+        self.suptitlesize = 18
         #self.alpha_sensitivity_df = alpha_sensitivity_df
         #self.alpha_earnings_df = alpha_earnings_df
 
@@ -80,11 +85,11 @@ class Plotting_Class:
         # Determine metrics to plot
         is_pap = self.cm_data.contract_type == "PAP"
         if is_pap and 'Gamma' in df.columns:
-            metrics = ['StrikePrice', 'Gamma']
-            z_labels = ['Strike Price (EUR/MWh)', 'Gamma (%)']
+            metrics = ['StrikePrice', 'Gamma','Nash_Product']
+            z_labels = ['Strike Price (EUR/MWh)', 'Gamma (%)', 'Nash_Product']
         else:
-            metrics = ['StrikePrice', 'ContractAmount',]
-            z_labels = ['Strike Price (EUR/MWh)', 'Contract Amount (MWh)']
+            metrics = ['StrikePrice', 'ContractAmount', 'Nash_Product']
+            z_labels = ['Strike Price (EUR/MWh)', 'Contract Amount (MWh)', 'Nash_Product']
 
         for i, (metric, z_label) in enumerate(zip(metrics, z_labels)):
             # Create individual figure for each metric
@@ -134,11 +139,14 @@ class Plotting_Class:
             #    plt.savefig(f'plot_elev30_azim{azim}.png')
 
             
+                
+            plt.tight_layout()
+            
             if filename:
-                filename_i = metric + '_' + filename
-                filepath = os.path.join(self.plots_dir, filename_i)
+                filename = f"{metric}_{filename}" if not filename else filename
+                filepath = os.path.join(self.plots_dir, filename)
                 plt.savefig(filepath, bbox_inches='tight', dpi=300)
-                print(f"3D plot saved to {filepath}")
+                print(f"Plot saved to {filepath}")
                 plt.close(fig)
             else:
                 plt.show()
@@ -211,10 +219,10 @@ class Plotting_Class:
         fig, axes = plt.subplots(1, 2, figsize=(12, 5))
         axes = axes.flatten()
         if sensitivity_type == "bias":
-            fig.suptitle(f'{self.cm_data.contract_type}: {cfg["title"]}, $A_G$={self.cm_data.A_G},$A_L$={self.cm_data.A_L}', fontsize=16)
+            fig.suptitle(f'{self.cm_data.contract_type}: {cfg["title"]}, $A_G$={self.cm_data.A_G},$A_L$={self.cm_data.A_L}', fontsize=self.suptitlesize)
         else:
-            fig.suptitle(f'{self.cm_data.contract_type}: {cfg["title"]}', fontsize=16)
-        
+            fig.suptitle(f'{self.cm_data.contract_type}: {cfg["title"]}', fontsize=self.suptitlesize)
+
         for i, (metric, unit, title) in enumerate(zip(metrics, units, titles)):
             ax = axes[i]
             try:
@@ -229,7 +237,7 @@ class Plotting_Class:
                     pivot_table,
                     ax=ax,
                     annot=True,
-                    cmap="cividis",
+                    cmap="RdYlGn",
                     cbar=True,
                     linewidths=0.5,
                     fmt ='.2f',
@@ -292,10 +300,10 @@ class Plotting_Class:
                             
                            
                 """
-                ax.set_title(f"{title} ({unit})")
-                ax.set_xlabel(cfg['xlabel'])
-                ax.set_ylabel(cfg['ylabel'])
-                
+                ax.set_title(f"{title} ({unit})", fontsize=self.titlesize)
+                ax.set_xlabel(cfg['xlabel'], fontsize=self.labelsize)
+                ax.set_ylabel(cfg['ylabel'], fontsize=self.labelsize)
+
             except Exception as e:
                 print(f"Could not plot heatmap for {metric}: {e}")
                 ax.set_title(f'{metric} (Plotting Error)')
@@ -331,31 +339,31 @@ class Plotting_Class:
         results_df = cfg['df'].copy()
         
         # Calculate reference values
-        capture_price = self.cm_data.Capture_price_L_avg * 1e3  # Convert to EUR/MWh
         
         # Determine contract type and setup units/labels
         is_pap = self.cm_data.contract_type == "PAP"
         has_gamma = 'Gamma' in results_df.columns
         
         if is_pap and has_gamma:
+            capture_price_pap = self.cm_data.Capture_price_G_avg * 1e3  # Convert to EUR/MWh
             # PAP contract with Gamma
             units = ['€/MWh', 'MW']
-            capture_price_type = "(G)"
             production_type = "MWh"
             expected_production = self.cm_data.production.mean().mean() / self.cm_data.hours_in_year * 1e3  # IN MW
             
             # Convert contract amount to MW for PAP
             results_df['ContractAmount'] = results_df['ContractAmount'] 
         else:
+            avg_price = self.cm_data.price_true.mean().mean() * 1e3  # Convert to EUR/MWh
             # Non-PAP contract
             units = ['€/MWh', 'MWh']
-            capture_price_type = "(L)"
-            production_type = "GWh/y"
-            expected_production = self.cm_data.production.mean().mean()
+            capture_price_type = "\mathbb{E}(\lambda) (EUR/MWh)"
+            production_type = "MWh"
+            expected_production = self.cm_data.production.mean().mean() / self.cm_data.hours_in_year * 1e3  # IN MWh
             
             # Keep original contract amount and create yearly version
             #results_df['ContractAmount_yearly'] = results_df['ContractAmount'].round(2)
-            results_df['ContractAmount'] = results_df['ContractAmount'] 
+            results_df['ContractAmount'] = results_df['ContractAmount']  / self.cm_data.hours_in_year * 1e3 
         
         # Sort results by parameter
         results_sorted = results_df.sort_values(cfg['param_col'])
@@ -370,14 +378,20 @@ class Plotting_Class:
             ax = axes[i]
             
             # Plot reference lines
-            if metric == 'StrikePrice':
-                ax.axhline(capture_price, color='black', linestyle='--', 
-                        label=f'Capture Price {capture_price_type}')
-            else:
+            if metric == 'StrikePrice' and is_pap:
+                ax.axhline(capture_price_pap, color='black', linestyle='--', 
+                        label=f'Capture Price (G) ')
+            elif metric == 'StrikePrice':
+                ax.axhline(avg_price, color='black', linestyle='--', 
+                        label=f'Expected Price')
+            elif metric == 'ContractAmount' and not (is_pap):
+                # Plot expected production line for non-PAP contracts
                 ax.axhline(expected_production, color='black', linestyle='--', 
                         label=f'Expected Production {production_type}')
-            
+                    
             # Plot main metric
+            ax.plot(param_values, np.round(results_sorted[metric].values,4),marker='o', linewidth=2, markersize=8, label=f"({title})")
+            """ 
             sns.lineplot(
                 x=param_values,
                 y=results_sorted[metric].values,
@@ -387,14 +401,17 @@ class Plotting_Class:
                 ax=ax,
                 label=f"Contract ({title})"
             )
-            
+            """
             # Handle secondary y-axis for Contract Amount subplot
-            if metric == 'ContractAmount':
-                ax2 = ax.twinx()
-                
+            if metric == 'ContractAmount':                
                 if is_pap and has_gamma:
                     # Plot Gamma percentage for PAP contracts
+                    ax2 = ax.twinx()
+
                     gamma_values = results_sorted['Gamma'].values * 100
+
+                    ax2.plot(param_values, gamma_values, linestyle='--',color="red", linewidth=1, label='Gamma (%)')
+                    """ 
                     sns.lineplot(
                         x=param_values,
                         y=gamma_values,
@@ -407,52 +424,42 @@ class Plotting_Class:
                         ax=ax2,
                         label='Gamma (%)'
                     )
+                    """
                     ax2.set_ylabel('Gamma (%)', color='red')
                     ax2.tick_params(axis='y', labelcolor='red')
                     
                     # Special handling if Gamma values are all close to 100%
                     if np.allclose(gamma_values, 100, atol=1e-2):
                         ax2.set_ylim(99, 101)
-                else:
-                    # Plot yearly contract amount for non-PAP contracts
-                    yearly_values = results_sorted['ContractAmount'].values
-                    sns.lineplot(
-                        x=param_values,
-                        y=yearly_values,
-                        marker='s',
-                        linewidth=1,
-                        markersize=6,
-                        color='red',
-                        alpha=0.7,
-                        linestyle='--',
-                        ax=ax2,
-                        label='Contract (MWh)'
-                    )
-                    ax2.set_ylabel('Contract (MWh)', color='red')
-                    ax2.tick_params(axis='y', labelcolor='red')
-                
+                        #Set y-limits with some padding
+                    #y_values = results_sorted[metric].values
+                    #y_padding = 0.1 * (y_values.max() - y_values.min())
+                    #ax.set_ylim(y_values.min() - y_padding, y_values.max() + y_padding)          
                 # Create combined legend for Contract Amount subplot only
                 lines1, labels1 = ax.get_legend_handles_labels()
-                #lines2, labels2 = ax2.get_legend_handles_labels()
-                ax.legend(lines1 , labels1 , loc="upper left", fontsize=10)
+                if 'is_pap' and has_gamma:
+                    # Include Gamma line in the legend
+                    lines2, labels2 = ax2.get_legend_handles_labels()
+                    ax.legend(lines1 + lines2, labels1 + labels2, loc="best", fontsize=self.legendsize)
+                else:
+                    ax.legend(lines1, labels1, loc="best", fontsize=self.legendsize)
+
             else:
                 # Simple legend for Strike Price subplot
-                ax.legend(loc="upper left", fontsize=10)
+                
+                ax.legend(loc="best", fontsize=self.legendsize)
 
             # Configure axes
-            ax.set_xlabel(cfg['xlabel'])
-            ax.set_ylabel(f'{title} ({unit})')
-            ax.set_title(title)
+            ax.set_xlabel(cfg['xlabel'], fontsize=self.labelsize)
+            ax.set_ylabel(f'{title} ({unit})', fontsize=self.labelsize)
+            ax.set_title(title, fontsize=self.titlesize)
             ax.grid(True, alpha=0.3)
-            ax.set_xlim(-0.05, 1.1)
+            #
             
-            # Set y-limits with some padding
-            y_values = results_sorted[metric].values
-            y_padding = 0.1 * (y_values.max() - y_values.min())
-            ax.set_ylim(y_values.min() - y_padding, y_values.max() + y_padding)
+         
         
         # Add main title and layout
-        fig.suptitle(f'{self.cm_data.contract_type}: {cfg["title"]}', fontsize=16)
+        fig.suptitle(f'{self.cm_data.contract_type}: {cfg["title"]}', fontsize=self.suptitlesize)
         plt.tight_layout()
         
         # Save or show plot
@@ -516,7 +523,7 @@ class Plotting_Class:
             # Expected G Revenue
             G_6_expected = G_values.mean()
             # Calculate CVaR values 
-            cvar_G = calculate_cvar_left(G_values, self.cm_data.alpha)
+            cvar_G = calculate_cvar_left(G_values,self.cm_data.PROB, self.cm_data.alpha)
             utility_G = (1-fixed_A_G)*G_6_expected + fixed_A_G*cvar_G
 
             if len(G_values) > 0:
@@ -540,8 +547,8 @@ class Plotting_Class:
             # Expected L Revenue
             L_expected = L_values.mean()
             # Calculate CVaR values 
-            
-            cvar_L = calculate_cvar_left(L_values, self.cm_data.alpha)
+
+            cvar_L = calculate_cvar_left(L_values,self.cm_data.PROB, self.cm_data.alpha)
             utility_L = (1-a_L)*L_expected + a_L*cvar_L
             if len(L_values) > 0:
                 ax_L.hist(
@@ -557,9 +564,9 @@ class Plotting_Class:
         
         ax_G.hist(self.cm_data.net_earnings_no_contract_true_G ,bins=bin_edges_G,alpha=0.4,label=f'No Contract',density=False,color ='black')    
         ax_G.axvline(self.cm_data.net_earnings_no_contract_true_G.mean() , linestyle="--",color ='black', label=f"No Contract - Expected : {self.cm_data.net_earnings_no_contract_true_G.mean() :.2f}")
-        ax_G.set_title(f'Generator (G) Revenue Distribution')
-        ax_G.set_xlabel('Generator Revenue (Mio EUR)')
-        ax_G.set_ylabel('Frequency')
+        ax_G.set_title(f'Generator (G) Revenue Distribution', fontsize=self.titlesize)
+        ax_G.set_xlabel('Generator Revenue (Mio EUR)', fontsize=self.labelsize)
+        ax_G.set_ylabel('Frequency', fontsize=self.labelsize)
         # Modify legend to have two columns with specific ordering
         handles, labels = ax_G.get_legend_handles_labels()
         hist_handles = handles[::2]  # Get histogram handles
@@ -575,9 +582,9 @@ class Plotting_Class:
 
         ax_L.hist(self.cm_data.net_earnings_no_contract_true_L,bins=bin_edges_L,alpha=0.4,label=f'No Contract',density=False, color ='black')
         ax_L.axvline(self.cm_data.net_earnings_no_contract_true_L.mean() , linestyle="--",color ='black', label=f"No Contract - Average Earnings: {self.cm_data.net_earnings_no_contract_true_L.mean() :.2f}")    
-        ax_L.set_title(f'Load (L) Revenue Distribution')
-        ax_L.set_xlabel('Load Revenue (Mio EUR)')
-        ax_L.set_ylabel('Frequency')
+        ax_L.set_title(f'Load (L) Revenue Distribution', fontsize=self.titlesize)
+        ax_L.set_xlabel('Load Revenue (Mio EUR)', fontsize=self.labelsize)
+        ax_L.set_ylabel('Frequency', fontsize=self.labelsize)
         # Apply same legend formatting to L plot
         handles, labels = ax_L.get_legend_handles_labels()
         hist_handles = handles[::2]
@@ -586,13 +593,13 @@ class Plotting_Class:
         line_labels = labels[1::2]
         ax_L.legend(hist_handles + line_handles, hist_labels + line_labels, 
                     ncol=2, loc='upper right',
-                    fontsize=10, bbox_to_anchor=(0.98, 0.98),
+                    fontsize=self.legendsize, bbox_to_anchor=(0.98, 0.98),
                     bbox_transform=ax_L.transAxes,
                     framealpha=0.8)
         ax_L.grid(True, axis='y', linestyle='--', alpha=0.7)
 
         #Add suptitle 
-        fig.suptitle(f'{self.cm_data.contract_type}: Expected Revenue ($A_G$ = {fixed_A_G})', fontsize=16)
+        fig.suptitle(f'{self.cm_data.contract_type}: Expected Revenue ($A_G$ = {fixed_A_G})', fontsize=self.suptitlesize)
 
         plt.tight_layout()
         if filename:
@@ -643,20 +650,20 @@ class Plotting_Class:
             ax_g.axvline(self.cm_data.net_earnings_no_contract_true_G.mean(), color='black', linestyle='--')
             ax_l.hist(self.cm_data.net_earnings_no_contract_true_L, bins=bins_l, alpha=0.3, color='black', label='No Contract')
             ax_l.axvline(self.cm_data.net_earnings_no_contract_true_L.mean(), color='black', linestyle='--')
-        
-            ax_g.set_title('Generator Revenue Distribution')
-            ax_g.set_xlabel('Revenue (Mio EUR)')
-            ax_g.set_ylabel('Frequency')
+
+            ax_g.set_title('Generator Revenue Distribution', fontsize=self.titlesize)
+            ax_g.set_xlabel('Revenue (Mio EUR)', fontsize=self.labelsize)
+            ax_g.set_ylabel('Frequency', fontsize=self.labelsize)
             ax_g.legend()
             ax_g.grid(True, axis='y', linestyle='--', alpha=0.7)
-        
-            ax_l.set_title('Load Revenue Distribution')
-            ax_l.set_xlabel('Revenue (Mio EUR)')
-            ax_l.set_ylabel('Frequency')
+
+            ax_l.set_title('Load Revenue Distribution', fontsize=self.titlesize)
+            ax_l.set_xlabel('Revenue (Mio EUR)', fontsize=self.labelsize)
+            ax_l.set_ylabel('Frequency', fontsize=self.labelsize)
             ax_l.legend()
             ax_l.grid(True, axis='y', linestyle='--', alpha=0.7)
-        
-            fig.suptitle(f"{self.cm_data.contract_type}: Earnings Distribution by Alpha, $A_G$ = {self.cm_data.A_G}, $A_L$ = {self.cm_data.A_L}", fontsize=15)
+
+            fig.suptitle(f"{self.cm_data.contract_type}: Earnings Distribution by Alpha, $A_G$ = {self.cm_data.A_G}, $A_L$ = {self.cm_data.A_L}", fontsize=self.suptitlesize)
             plt.tight_layout()
         
             if filename:
@@ -697,8 +704,8 @@ class Plotting_Class:
 
 
         # Calculate CVaR values (constant for all risk aversion values)
-        cvar_G_no_contract = calculate_cvar_left(self.cm_data.net_earnings_no_contract_G, self.cm_data.alpha)
-        cvar_L_no_contract = calculate_cvar_left(self.cm_data.net_earnings_no_contract_L, self.cm_data.alpha)
+        cvar_G_no_contract = calculate_cvar_left(self.cm_data.net_earnings_no_contract_G,self.cm_data.PROB, self.cm_data.alpha)
+        cvar_L_no_contract = calculate_cvar_left(self.cm_data.net_earnings_no_contract_L,self.cm_data.PROB, self.cm_data.alpha)
         mean_G_contract = self.cm_data.net_earnings_no_contract_G.mean()
         mean_L_no_contract = self.cm_data.net_earnings_no_contract_L.mean()
 
@@ -714,7 +721,7 @@ class Plotting_Class:
 
             if len(G_values) > 0:
                 expected_G = G_values.mean()
-                cvar_G = calculate_cvar_left(G_values, self.cm_data.alpha)
+                cvar_G = calculate_cvar_left(G_values,self.cm_data.PROB, self.cm_data.alpha)
                 utility_G = (1-fixed_A_G)*expected_G + fixed_A_G*cvar_G
                 ax_G.axvline(utility_G/1e5, linestyle="-", color=current_color, 
                               label=f"A_L={a_L} - Utility: {utility_G/1e5:.2f}")
@@ -722,7 +729,7 @@ class Plotting_Class:
             L_values = filtered_results[filtered_results['A_L'] == a_L]['Revenue_L'].values
             if len(L_values) > 0:
                 expected_L = L_values.mean()
-                cvar_L = calculate_cvar_left(L_values, self.cm_data.alpha)
+                cvar_L = calculate_cvar_left(L_values,self.cm_data.PROB, self.cm_data.alpha)
                 utility_L = (1-a_L)*expected_L + a_L*cvar_L
                 ax_L.axvline(utility_L/1e5, linestyle="-", color=current_color, 
                               label=f"A_L={a_L} - Utility: {utility_L/1e5:.2f}")
@@ -731,8 +738,8 @@ class Plotting_Class:
         
         #G Subplot configuration
         ax_G.axvline(zeta_G/1e5, linestyle="--", color='black', label=f"Threat Point: {zeta_G/1e5:.2f}")
-        ax_G.set_title(f'Generator (G) Threatpoint\n(A_G = {fixed_A_G}) vs. L Risk Aversion')
-        ax_G.set_xlabel('Generator Revenue ($ x 10^5)')
+        ax_G.set_title(f'Generator (G) Threatpoint\n(A_G = {fixed_A_G}) vs. L Risk Aversion', fontsize=self.titlesize)
+        ax_G.set_xlabel('Generator Revenue ($ x 10^5)', fontsize=self.labelsize)
         # Modify legend to have two columns with specific ordering
         handles, labels = ax_G.get_legend_handles_labels()
         hist_handles = handles[::2]  # Get histogram handles
@@ -748,8 +755,8 @@ class Plotting_Class:
 
         #ax_L.axvline(self.cm_data.net_earnings_no_contract_L_df.sum().mean() / 1e5, linestyle="--",color ='black', label=f"No Contract - Average Earnings: {self.cm_data.net_earnings_no_contract_L_df.sum().mean() / 1e5:.2f}")   
         #L Subplot configuration
-        ax_L.set_title(f'Load (L) Threatpoints vs \n(A_G = {fixed_A_G})')
-        ax_L.set_xlabel('Load Revenue ($ x 10^5)')
+        ax_L.set_title(f'Load (L) Threatpoints vs \n(A_G = {fixed_A_G})', fontsize=self.titlesize)
+        ax_L.set_xlabel('Load Revenue ($ x 10^5)', fontsize=self.labelsize)
         # Apply same legend formatting to L plot
         handles, labels = ax_L.get_legend_handles_labels()
         hist_handles = handles[::2]
@@ -802,8 +809,8 @@ class Plotting_Class:
         zeta_L_values = []
         
         # Calculate CVaR values (constant for all risk aversion values)
-        cvar_G = calculate_cvar_left(self.cm_data.net_earnings_no_contract_G, self.cm_data.alpha)
-        cvar_L = calculate_cvar_left(self.cm_data.net_earnings_no_contract_L, self.cm_data.alpha)
+        cvar_G = calculate_cvar_left(self.cm_data.net_earnings_no_contract_G,self.cm_data.PROB, self.cm_data.alpha)
+        cvar_L = calculate_cvar_left(self.cm_data.net_earnings_no_contract_L,self.cm_data.PROB, self.cm_data.alpha)
         mean_G = self.cm_data.net_earnings_no_contract_G.mean()
         mean_L = self.cm_data.net_earnings_no_contract_L.mean()
 
@@ -821,9 +828,9 @@ class Plotting_Class:
         for i,zeta in enumerate(zeta_G_values):
             current_color = colors[i % len(colors)]  # Cycle through colors
             ax_G.axvline(zeta, linestyle="--", color=current_color, label=f'A_G={risk_aversion_values[i]:.2f} - Threat Point: {zeta:.2f}')
-        ax_G.set_title('Generator (G) No-Contract Revenue Distribution')
-        ax_G.set_xlabel('Generator Revenue ($ x 10^5)')
-        ax_G.set_ylabel('Frequency')
+        ax_G.set_title('Generator (G) No-Contract Revenue Distribution', fontsize=self.titlesize)
+        ax_G.set_xlabel('Generator Revenue ($ x 10^5)', fontsize=self.labelsize)
+        ax_G.set_ylabel('Frequency', fontsize=self.labelsize)
         ax_G.grid(True, axis='y', linestyle='--', alpha=0.7)
         ax_G.legend()
 
@@ -831,9 +838,9 @@ class Plotting_Class:
         for i,zeta in enumerate(zeta_L_values):
             current_color = colors[i % len(colors)]
             ax_L.axvline(zeta, linestyle="--", color=current_color, label=f'A_L={risk_aversion_values[i]:.2f} - Threat Point: {zeta:.2f}')
-        ax_L.set_title('Load (L) No-Contract Revenue Distribution')
-        ax_L.set_xlabel('Load Revenue ($ x 10^5)')
-        ax_L.set_ylabel('Frequency')
+        ax_L.set_title('Load (L) No-Contract Revenue Distribution', fontsize=self.titlesize)
+        ax_L.set_xlabel('Load Revenue ($ x 10^5)', fontsize=self.labelsize)
+        ax_L.set_ylabel('Frequency', fontsize=self.labelsize)
         ax_L.grid(True, axis='y', linestyle='--', alpha=0.7)
         ax_L.legend()
 
@@ -876,42 +883,42 @@ class Plotting_Class:
         fig, axes = plt.subplots(2, 2, figsize=(18, 12))
         fig.suptitle(
             f'{self.cm_data.contract_type}: Contract Parameters Sensitivity to {sensitivity_name} $A_G$ = {self.cm_data.A_G}, $A_L$ = {self.cm_data.A_L}',
-            fontsize=16
+            fontsize=self.suptitlesize
         )
         axes = axes.flatten()
 
         # Plot Strike Price
         axes[0].plot(df[x_column], df['StrikePrice'], marker='o', linestyle='-')
-        axes[0].set_xlabel(f'{x_column} (%)')
-        axes[0].set_ylabel('Strike Price (EUR/MWh)')
-        axes[0].set_title(f'Strike Price vs {sensitivity_name}')
+        axes[0].set_xlabel(f'{x_column} (%)', fontsize=self.labelsize)
+        axes[0].set_ylabel('Strike Price (EUR/MWh)', fontsize=self.labelsize)
+        axes[0].set_title(f'Strike Price vs {sensitivity_name}', fontsize=self.titlesize)
         axes[0].grid(True)
 
         # Plot Contract Amount
         if self.cm_data.contract_type == "PAP":
             axes[1].set_ylim(25, 40)
         axes[1].plot(df[x_column], df['ContractAmount'], marker='o', linestyle='-')
-        axes[1].set_xlabel(f'{x_column} (%)')
-        axes[1].set_ylabel('Contract Amount (MWh)')
-        axes[1].set_title(f'Contract Amount vs {sensitivity_name}')
+        axes[1].set_xlabel(f'{x_column} (%)', fontsize=self.labelsize)
+        axes[1].set_ylabel('Contract Amount (MWh)', fontsize=self.labelsize)
+        axes[1].set_title(f'Contract Amount vs {sensitivity_name}', fontsize=self.titlesize)
         axes[1].yaxis.set_major_formatter(plt.FormatStrFormatter('%.1f'))
         axes[1].grid(True)
 
         # Plot Utility G
         axes[2].plot(df[x_column], df['Utility_G'], marker='o', linestyle='-', label='Utility Generator')
         axes[2].plot(df[x_column], df['ThreatPoint_G'], marker='o', linestyle='-', label='Threat Point Generator')
-        axes[2].set_xlabel(f'{x_column} (%)')
-        axes[2].set_ylabel('Utility Generator')
-        axes[2].set_title(f'Generator Utility vs {sensitivity_name}')
+        axes[2].set_xlabel(f'{x_column} (%)', fontsize=self.labelsize)
+        axes[2].set_ylabel('Utility Generator', fontsize=self.labelsize)
+        axes[2].set_title(f'Generator Utility vs {sensitivity_name}', fontsize=self.titlesize)
         axes[2].grid(True)
         axes[2].legend()
 
         # Plot Utility L
         axes[3].plot(df[x_column], df['Utility_L'], marker='o', linestyle='-', label='Utility Load')
         axes[3].plot(df[x_column], df['ThreatPoint_L'], marker='o', linestyle='-', label='Threat Point Load')
-        axes[3].set_xlabel(f'{x_column} (%)')
-        axes[3].set_ylabel('Utility Load')
-        axes[3].set_title(f'Load Utility & Threatpoint vs {sensitivity_name}')
+        axes[3].set_xlabel(f'{x_column} (%)', fontsize=self.labelsize)
+        axes[3].set_ylabel('Utility Load', fontsize=self.labelsize)
+        axes[3].set_title(f'Load Utility & Threatpoint vs {sensitivity_name}', fontsize=self.titlesize)
         axes[3].grid(True)
         axes[3].legend()
 
@@ -980,12 +987,12 @@ class Plotting_Class:
             sns.scatterplot( x = lowest_boundary[:, 0] * 100, y = lowest_boundary[:, 1] * 100, s=90, alpha=0.5, color =scenario['color'], edgecolor='black')
         # Add labels and formatting
         if sensitivity_type == "price":
-            plt.xlabel('$K_L/E^P(\lambda_\Sigma)$ (%)', fontsize=14)
-            plt.ylabel('$K_G/E^P(\lambda_\Sigma)$ (%)', fontsize=14)
+            plt.xlabel('$K_L/E^P(\lambda_\Sigma)$ (%)', fontsize=self.labelsize)
+            plt.ylabel('$K_G/E^P(\lambda_\Sigma)$ (%)', fontsize=self.labelsize)
         elif sensitivity_type == "production":
-            plt.xlabel('$K_L/E^P(\P^G_\Sigma)$ (%)', fontsize=14)
-            plt.ylabel('$K_G/E^P(\P^G_\Sigma)$ (%)',fontsize=14)
-        plt.title(f'{self.cm_data.contract_type}-{sensitivity_type}: No-Contract Boundaries for Different Risk Aversion Levels',fontsize=16)
+            plt.xlabel('$K_L/E^P(\P^G_\Sigma)$ (%)', fontsize=self.labelsize)
+            plt.ylabel('$K_G/E^P(\P^G_\Sigma)$ (%)',fontsize=self.labelsize)
+        plt.title(f'{self.cm_data.contract_type}-{sensitivity_type}: No-Contract Boundaries for Different Risk Aversion Levels',fontsize=self.titlesize)
         plt.grid(True, alpha=0.3)
         plt.legend()
         plt.axhline(y=0, color='k',linewidth=2)
@@ -1059,37 +1066,37 @@ class Plotting_Class:
         # Plot 1: All symmetrical cases
         for result in sym_scenarios:
             _plot_boundary_on_axis(ax1, result)
-        ax1.set_title("Symmetrical Risk Aversion (A_G = A_L)")
+        ax1.set_title("Symmetrical Risk Aversion (A_G = A_L)", fontsize=self.titlesize)
         ax1.legend()
         
         # Plot 2: All asymmetrical cases
         for result in asym_scenarios:
             _plot_boundary_on_axis(ax2, result)
-        ax2.set_title("Asymmetrical Risk Aversion (A_G ≠ A_L)")
+        ax2.set_title("Asymmetrical Risk Aversion (A_G ≠ A_L)", fontsize=self.titlesize)
         ax2.legend()
         
         # Plot 3: Fixed A_G, varying A_L
         fixed_ag_scenarios = [r for r in self.boundary_results if r['scenario']['A_G'] == 0.5]
         for result in fixed_ag_scenarios:
             _plot_boundary_on_axis(ax3, result)
-        ax3.set_title("Fixed Generator Risk Aversion (A_G = 0.5)")
+        ax3.set_title("Fixed Generator Risk Aversion (A_G = 0.5)", fontsize=self.titlesize)
         ax3.legend()
         
         # Plot 4: Fixed A_L, varying A_G
         fixed_al_scenarios = [r for r in self.boundary_results if r['scenario']['A_L'] == 0.5]
         for result in fixed_al_scenarios:
             _plot_boundary_on_axis(ax4, result)
-        ax4.set_title("Fixed Load Risk Aversion (A_L = 0.5)",fontsize=15)
+        ax4.set_title("Fixed Load Risk Aversion (A_L = 0.5)", fontsize=self.titlesize)
         ax4.legend()
         
         # Common formatting
         for ax in [ax1, ax2, ax3, ax4]:
             if sensitivity_type == "price":
-                ax.set_xlabel('$K_L/E^P(\lambda_\Sigma)$ (%)',fontsize=14)
-                ax.set_ylabel('$K_G/E^P(\lambda_\Sigma)$ (%)', fontsize=14)
+                ax.set_xlabel('$K_L/E^P(\lambda_\Sigma)$ (%)',fontsize=self.labelsize)
+                ax.set_ylabel('$K_G/E^P(\lambda_\Sigma)$ (%)', fontsize=self.labelsize)
             elif sensitivity_type == "production":
-                ax.set_xlabel('$K_L/E^P(\P^G_\Sigma)$ (%)', fontsize=14)
-                ax.set_ylabel('$K_G/E^P(\P^G_\Sigma)$ (%)', fontsize=14)
+                ax.set_xlabel('$K_L/E^P(\P^G_\Sigma)$ (%)', fontsize=self.labelsize)
+                ax.set_ylabel('$K_G/E^P(\P^G_\Sigma)$ (%)', fontsize=self.labelsize)
             ax.grid(True, alpha=0.3)
             ax.set_xlim(-30, 30)
             ax.set_ylim(-30, 30)
@@ -1099,7 +1106,7 @@ class Plotting_Class:
         plt.tight_layout()
         plt.subplots_adjust(top=0.92)
 
-        fig.suptitle(f'{self.cm_data.contract_type}-{sensitivity_type}: No-Contract Boundaries', fontsize=17)
+        fig.suptitle(f'{self.cm_data.contract_type}-{sensitivity_type}: No-Contract Boundaries', fontsize=self.suptitlesize)
 
         if filename:
             plt.savefig(filename, dpi=300, bbox_inches='tight')
@@ -1202,7 +1209,7 @@ class Plotting_Class:
         CP_df = pd.DataFrame({
             'Revenue_G': self.CP_earnings_df["Revenue_G_CP"],
             'Revenue_L': self.CP_earnings_df["Revenue_L_CP"],
-            'A_L': 'Capture Price'  # Assign a string label for the category
+            'A_L': 'Capture \n Price'  # Assign a string label for the category
         })
 
 
@@ -1220,7 +1227,7 @@ class Plotting_Class:
         contract_mask = plot_data['A_L'] != 'No Contract'
 
         # Create figure with more space at the bottom for the table
-        fig, axes = plt.subplots(1, 2, figsize=(14, 10))
+        fig, axes = plt.subplots(1, 2, figsize=(14, 7))
         ax_G = axes[0]
         ax_L = axes[1]
         
@@ -1250,7 +1257,7 @@ class Plotting_Class:
             hue="A_L",
             hue_order=plot_order,
             legend=False,
-            width=0.3,
+            width=0.5,
             showfliers=True,
             palette="Set2"
         )
@@ -1385,19 +1392,21 @@ class Plotting_Class:
         #ax_L.axhline(self.cm_data.net_earnings_no_contract_true_L.mean(), linestyle="--", color='grey', label=f"No Contract - Average Earnings: {self.cm_data.net_earnings_no_contract_true_L.mean() :.2f} ")
 
         # Set titles and labels
-        ax_G.set_title(f'Generator Revenue',fontsize=14)
-        ax_G.set_xlabel('Risk Aversion Level $(A_L)$',fontsize=13)
-        ax_G.set_ylabel('Generator Revenue (Mio EUR)',fontsize=13)
+        ax_G.set_title(f'Generator Revenue',fontsize=self.titlesize)
+        ax_G.tick_params(axis='both', labelsize= self.legendsize)
+        ax_G.set_xlabel('Risk Aversion Level $(A_L)$',fontsize=self.labelsize)
+        ax_G.set_ylabel('Generator Revenue (Mio EUR)',fontsize=self.labelsize)
         ax_G.grid(True, linestyle='--', alpha=0.9, axis='y')
-        ax_G.legend(loc='upper left', fontsize=10, framealpha=0.8)
-        
-        ax_L.set_title(f'Load Revenue',fontsize=14)
-        ax_L.set_xlabel('Risk Aversion Level $(A_L)$', fontsize=13)
-        ax_L.set_ylabel('Load Revenue (Mio EUR)',fontsize=13)
-        ax_L.grid(True, linestyle='--', alpha=0.9, axis='y')
-        ax_L.legend(loc='upper left', fontsize=10, framealpha=0.8)
+        ax_G.legend(loc='upper left', fontsize=self.legendsize, framealpha=0.8)
 
-        plt.suptitle(f"{self.cm_data.contract_type}: Earnings Distribution by Risk Aversion, $A_G$ = {self.cm_data.A_G}", fontsize=16)
+        ax_L.set_title(f'Load Revenue',fontsize=self.titlesize)
+        ax_L.set_xlabel('Risk Aversion Level $(A_L)$', fontsize=self.labelsize)
+        ax_L.set_ylabel('Load Revenue (Mio EUR)',fontsize=self.labelsize)
+        ax_L.tick_params(axis='both', labelsize= self.legendsize)
+        ax_L.grid(True, linestyle='--', alpha=0.9, axis='y')
+        ax_L.legend(loc='upper left', fontsize=self.legendsize, framealpha=0.8)
+
+        plt.suptitle(f"{self.cm_data.contract_type}: Earnings Distribution by Risk Aversion, $A_G$ = {self.cm_data.A_G}", fontsize=self.suptitlesize)
         
         plt.tight_layout()
 
@@ -1421,15 +1430,18 @@ class Plotting_Class:
             Path to save the plot. If None, the plot will be displayed.
         """
         earnings_df = self.negotiation_earnings_df
+        earnings_df["tau_G"] = earnings_df["tau_G"].round(2)  # Round to 2 decimal places for better readability
+        earnings_df["tau_L"] = earnings_df["tau_L"].round(2)  # Round to 2 decimal places for better readability
         unique_tau_g = earnings_df["tau_G"].unique()
 
         # Get three evenly spaced positions
-        positions = np.linspace(0, len(unique_tau_g)-1, 4, dtype=int)[1:-1]
-        selected_tau_g = np.round(unique_tau_g[positions],2)
+       # positions = np.linspace(0, len(unique_tau_g)-1, 7, dtype=int)
+        #selected_tau_g = np.round(unique_tau_g[positions], 2)
 
         # Filter the DataFrame for these tau_G values
-        df_filtered = earnings_df[earnings_df["tau_G"].isin(selected_tau_g)]
-
+        selected_tau_g = unique_tau_g,   # Round to 2 decimal places for better readability
+        #df_filtered = earnings_df[earnings_df["tau_G"].isin(selected_tau_g)]
+        df_filtered = earnings_df
         AL_used = df_filtered['A_L'].unique()[0]  # Assuming A_L is constant for the filtered data
         AG_used = df_filtered['A_G'].unique()[0]  # Assuming A_G is constant for the filtered data
                 
@@ -1446,7 +1458,7 @@ class Plotting_Class:
         CP_df = pd.DataFrame({
             'Revenue_G': self.CP_earnings_df["Revenue_G_CP"],
             'Revenue_L': self.CP_earnings_df["Revenue_L_CP"],
-            'tau_G': 'Capture Price'  # Assign a string label for the category
+            'tau_G': 'Capture \n Price'  # Assign a string label for the category
         })
 
         # Combine the contract and no-contract data
@@ -1460,7 +1472,7 @@ class Plotting_Class:
         
         
         # Create figure with more space at the bottom for the table
-        fig, axes = plt.subplots(1, 2, figsize=(14, 10))
+        fig, axes = plt.subplots(1, 2, figsize=(14, 7))
         ax_G = axes[0]
         ax_L = axes[1]
         
@@ -1556,18 +1568,20 @@ class Plotting_Class:
                             bbox=dict(boxstyle="round,pad=0.3", fc="white", alpha=0.7))
         """
         # Set titles and labels
-        ax_G.set_title(f'Generator Revenue',fontsize=14)
-        ax_G.set_xlabel('Negotiation Power $(tau_G)$',fontsize=13)
-        ax_G.set_ylabel('Generator Revenue (Mio EUR)',fontsize=13)
+        ax_G.set_title(f'Generator Revenue',fontsize=self.titlesize)
+        ax_G.set_xlabel('Negotiation Power $(\tau_G)$',fontsize=self.labelsize)
+        ax_G.set_ylabel('Generator Revenue (Mio EUR)',fontsize=self.labelsize)
+        ax_G.tick_params(axis='both', labelsize= self.legendsize-1)
         ax_G.grid(True, linestyle='--', alpha=0.7, axis='y')
-        
-        ax_L.set_title(f'Load Revenue',fontsize=14)
-        ax_L.set_xlabel('Negotiation Power $(tau_G)$', fontsize=13)
-        ax_L.set_ylabel('Load Revenue (Mio EUR)',fontsize=13)
+
+        ax_L.set_title(f'Load Revenue',fontsize=self.titlesize)
+        ax_L.set_xlabel('Negotiation Power $(\tau_G)$', fontsize=self.labelsize)
+        ax_L.set_ylabel('Load Revenue (Mio EUR)',fontsize=self.labelsize)
+        ax_L.tick_params(axis='both', labelsize= self.legendsize-1)
         ax_L.grid(True, linestyle='--', alpha=0.7, axis='y')
 
-        plt.suptitle(f"{self.cm_data.contract_type}: Earnings Distribution by Negotiation Power with Risk Aversion $A_G$={AG_used}, $A_L$={AL_used}", fontsize=16)
-        
+        plt.suptitle(f"{self.cm_data.contract_type}: Earnings Distribution by Negotiation Power with Risk Aversion $A_G$={AG_used}, $A_L$={AL_used}", fontsize=self.suptitlesize)
+
         plt.tight_layout()
 
         # Save or show the figure
@@ -1734,7 +1748,7 @@ class Plotting_Class:
 
         
         # Draw one axis per variable and add labels
-        plt.xticks(angles[:-1], [f"${cat}$" for cat in categories], size=12)        
+        plt.xticks(angles[:-1], [f"${cat}$" for cat in categories], size=self.labelsize)        
         # Set y limits
         ax.set_ylim(-1, 1.25)
         
@@ -1753,8 +1767,8 @@ class Plotting_Class:
         
         # Add title
         plt.title(f'{self.cm_data.contract_type}: Parameter Sensitivity Comparison Elaticities by Factor', 
-                size=15, y=1.1)
-        
+                size=self.titlesize, y=1.1)
+
         # Add reference circles and lines
         plt.grid(True)
         
@@ -1771,6 +1785,7 @@ class Plotting_Class:
             plt.show()
 
     def _plot_elasticity_tornado(self, bias = False, metrics='StrikePrice', filename=None):
+
         """
         Create a tornado plot showing the elasticity of a single metric
         with respect to different input factors.
@@ -1879,7 +1894,7 @@ class Plotting_Class:
         ncols = int(np.ceil(np.sqrt(n_metrics)))
         nrows = int(np.ceil(n_metrics / ncols))
 
-        fig, axes = plt.subplots(nrows, ncols, figsize=(8 * ncols, 5 * nrows))
+        fig, axes = plt.subplots(nrows, ncols, figsize=(8 * ncols, 6 * nrows))
         axes = axes.flatten()  # Flatten for easy indexing
 
         for idx, metric in enumerate(metrics):
@@ -1920,10 +1935,9 @@ class Plotting_Class:
                 ax=ax
             )
             ax.axvline(0, color='k', linewidth=1)
-            ax.set_xlabel(f'Elasticity of ${metric}$',fontsize=14)
-            ax.set_xlabel(f'Factor',fontsize=14)
+            ax.set_xlabel(f'Elasticity of ${metric}$',fontsize=self.labelsize)
 
-            ax.set_title(f'Sensitivity of ${metric}$',fontsize=16)
+            ax.set_title(f'Sensitivity of ${metric}$',fontsize=self.titlesize)
             ax.grid(axis='x', linestyle=':', alpha=0.7)
 
 
@@ -1931,10 +1945,10 @@ class Plotting_Class:
                 width = bar.get_width()
                 y     = bar.get_y() + bar.get_height()/2
 
-                offset = 7            # points   (change to taste)
+                offset = 9            # points   (change to taste)
                 ha     = 'left'
                 if width < 0:         # put the label on the other side of negative bars
-                    offset = -6
+                    offset = -5
                     ha     = 'right'
 
                 txt = ax.annotate(f'{value:.3f}',
@@ -1943,7 +1957,7 @@ class Plotting_Class:
                                 textcoords='offset points',
                                 va='center',
                                 ha=ha,
-                                fontsize=10,
+                                fontsize=self.legendsize,
                                 zorder=3)
 
        
@@ -1954,11 +1968,204 @@ class Plotting_Class:
         for j in range(idx + 1, len(axes)):
             fig.delaxes(axes[j])
         plt.tight_layout()
-        plt.suptitle(f"Parameter Sensitivity {self.cm_data.contract_type}, $A_G$={self.cm_data.A_G},$A_L$={self.cm_data.A_L}", fontsize=16, y=1.02)
+        plt.suptitle(f"Parameter Sensitivity {self.cm_data.contract_type}, $A_G$={self.cm_data.A_G},$A_L$={self.cm_data.A_L}", fontsize=self.suptitlesize, y=1.02)
         if filename:
             filepath = os.path.join(self.plots_dir, filename)
             plt.savefig(filepath, bbox_inches='tight', dpi=300)
             print(f"Tornado plot saved to {filepath}")
             plt.close()
+        else:
+            plt.show()
+
+    def _plot_nash_product_evolution(self, filename=None):
+        """
+        Plot how Nash Product changes across different sensitivity analyses.
+        This is crucial for understanding the efficiency of negotiation outcomes.
+        """
+        fig, ax = plt.subplots(figsize=(7, 5))
+
+        # 1. Risk Aversion Impact on Nash Product
+        risk_df = self.risk_sensitivity_df.copy()
+        
+        # Create pivot table for heatmap
+        pivot = risk_df.pivot_table(
+            index='A_L',
+            columns='A_G',
+            values='Nash_Product',
+            aggfunc='mean'
+        )
+
+        pivot = pivot.sort_index(ascending=False)
+        
+        sns.heatmap(
+            pivot,
+            ax=ax,
+            cmap='RdYlGn',
+            center=pivot.mean().mean(),
+            annot=True,
+            fmt='.1f',
+            cbar_kws={'label': 'Nash Product'}
+        )
+        ax.set_title('Nash Product: Risk Aversion Impact', fontsize=self.titlesize)
+        ax.set_xlabel('Generator Risk Aversion ($A_G$)', fontsize=self.labelsize)
+        ax.set_ylabel('Load Risk Aversion ($A_L$)', fontsize=self.labelsize)
+        
+        plt.tight_layout()
+        
+        if filename:
+            filepath = os.path.join(self.plots_dir, filename)
+            plt.savefig(filepath, bbox_inches='tight', dpi=300)
+            print(f"Nash Product evolution plot saved to {filepath}")
+            plt.close(fig)
+        else:
+            plt.show()
+
+    def _plot_utility_space(self, filename=None):
+        """
+        Plot the utility space showing feasible region, threat points, and Nash bargaining solution.
+        This is fundamental for understanding the negotiation dynamics.
+        """
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
+        
+        # 1. Utility Space with Different Risk Scenarios
+        risk_df = self.risk_sensitivity_df.copy()
+        
+        # Plot threat points and contract utilities for different scenarios
+        scenarios = [
+            {'A_G': 0, 'A_L': 0, 'label': 'Risk Neutral', 'color': 'green', 'marker': 'o'},
+            {'A_G': 0.5, 'A_L': 0.5, 'label': 'Moderate Risk', 'color': 'orange', 'marker': 's'},
+            {'A_G': 1, 'A_L': 1, 'label': 'High Risk', 'color': 'red', 'marker': '^'},
+            {'A_G': 0, 'A_L': 1, 'label': 'Asymmetric (G:0, L:1)', 'color': 'purple', 'marker': 'D'},
+            {'A_G': 1, 'A_L': 0, 'label': 'Asymmetric (G:1, L:0)', 'color': 'blue', 'marker': 'v'}
+        ]
+        
+        for scenario in scenarios:
+            row = risk_df[(risk_df['A_G'] == scenario['A_G']) & (risk_df['A_L'] == scenario['A_L'])]
+            if not row.empty:
+                # Plot threat point
+                ax1.scatter(row['ThreatPoint_G'], row['ThreatPoint_L'], 
+                        color=scenario['color'], marker=scenario['marker'], 
+                        s=200, alpha=0.5, edgecolor='black', linewidth=2,
+                        label=f"{scenario['label']} (Threat)")
+                
+                # Plot contract utility
+                ax1.scatter(row['Utility_G'], row['Utility_L'], 
+                        color=scenario['color'], marker=scenario['marker'], 
+                        s=200, alpha=1.0, edgecolor='black', linewidth=2)
+                
+                # Draw line from threat point to contract
+                ax1.plot([row['ThreatPoint_G'].iloc[0], row['Utility_G'].iloc[0]], 
+                        [row['ThreatPoint_L'].iloc[0], row['Utility_L'].iloc[0]], 
+                        color=scenario['color'], linestyle='--', alpha=0.5, linewidth=2)
+        
+        # Add Nash bargaining curve (approximate)
+        # This would be the Pareto frontier in the utility space
+        utility_g_range = np.linspace(risk_df['ThreatPoint_G'].min(), risk_df['Utility_G'].max(), 100)
+        
+        ax1.set_xlabel('Generator Utility', fontsize=self.labelsize)
+        ax1.set_ylabel('Load Utility', fontsize=self.labelsize)
+        ax1.set_title('Utility Space: Contract vs Threat Points', fontsize=self.titlesize)
+        ax1.grid(True, alpha=0.3)
+        ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        
+        # Add annotations
+        ax1.annotate('Feasible Region', xy=(risk_df['Utility_G'].mean(), risk_df['Utility_L'].mean()),
+                    xytext=(risk_df['Utility_G'].mean() + 20, risk_df['Utility_L'].mean() + 20),
+                    fontsize=12, ha='center',
+                    bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.3))
+        
+        # 2. Nash Product Contours
+        # Create a grid for contour plot
+        util_g_min = min(risk_df['ThreatPoint_G'].min(), risk_df['Utility_G'].min()) - 10
+        util_g_max = max(risk_df['ThreatPoint_G'].max(), risk_df['Utility_G'].max()) + 10
+        util_l_min = min(risk_df['ThreatPoint_L'].min(), risk_df['Utility_L'].min()) - 10
+        util_l_max = max(risk_df['ThreatPoint_L'].max(), risk_df['Utility_L'].max()) + 10
+        
+        g_range = np.linspace(util_g_min, util_g_max, 100)
+        l_range = np.linspace(util_l_min, util_l_max, 100)
+        G, L = np.meshgrid(g_range, l_range)
+        
+        # Calculate Nash product for each point (using average threat points)
+        threat_g_avg = risk_df['ThreatPoint_G'].mean()
+        threat_l_avg = risk_df['ThreatPoint_L'].mean()
+        
+        # Nash product = (U_G - T_G) * (U_L - T_L)
+        nash_product = np.maximum(G - threat_g_avg, 0) * np.maximum(L - threat_l_avg, 0)
+        
+        # Plot contours
+        contour = ax2.contour(G, L, nash_product, levels=20, cmap='viridis', alpha=0.6)
+        ax2.clabel(contour, inline=True, fontsize=10)
+        
+        # Overlay actual points
+        scatter = ax2.scatter(risk_df['Utility_G'], risk_df['Utility_L'], 
+                            c=risk_df['Nash_Product'], s=200, cmap='viridis',
+                            edgecolor='black', linewidth=2)
+        
+        # Add colorbar
+        cbar = plt.colorbar(scatter, ax=ax2)
+        cbar.set_label('Nash Product', fontsize=self.legendsize)
+        
+        ax2.set_xlabel('Generator Utility', fontsize=self.labelsize)
+        ax2.set_ylabel('Load Utility', fontsize=self.labelsize)
+        ax2.set_title('Nash Product Contours in Utility Space', fontsize=self.titlesize)
+        ax2.grid(True, alpha=0.3)
+        
+        # Overall title
+        fig.suptitle(f'{self.cm_data.contract_type}: Utility Space Analysis', fontsize=self.suptitlesize)
+        
+        plt.tight_layout()
+        
+        if filename:
+            filepath = os.path.join(self.plots_dir, filename)
+            plt.savefig(filepath, bbox_inches='tight', dpi=300)
+            print(f"Utility space plot saved to {filepath}")
+            plt.close(fig)
+        else:
+            plt.show()
+
+    def _plot_disagreement_points(self,filename=None):
+        """
+        Plot the disagreement points for different risk aversion levels.
+        This is crucial for understanding the negotiation dynamics and potential outcomes.
+        """
+        fig, ax = plt.subplots(figsize=(8, 6))
+
+        A_values = np.linspace(0, 1, 100)
+        d_G_vals = np.zeros(len(A_values))
+        d_L_vals = np.zeros(len(A_values))
+
+        for i, A in enumerate(A_values):
+            d_G_vals[i] = ((1 - A) * (self.cm_data.PROB * self.cm_data.net_earnings_no_contract_priceG_G).sum() +
+                        A * self.cm_data.CVaR_no_contract_priceG_G)
+            d_L_vals[i] = ((1 - A) * (self.cm_data.PROB * self.cm_data.net_earnings_no_contract_priceL_L).sum() +
+                        A * self.cm_data.CVaR_no_contract_priceL_L)
+        ax2 = ax.twinx()  # Create a second y-axis for Load disagreement points
+
+        # Plot disagreement points
+        line2, = ax2.plot(A_values, d_L_vals, label='Load Disagreement Point', color='orange', linewidth=2,  marker='o', markevery=10)
+        line1, = ax.plot(A_values, d_G_vals, label='Generator Disagreement Point', color='blue',  marker='o', markevery=5)
+
+
+        # Add labels and title
+        ax.set_xlabel('Risk Aversion', fontsize=self.labelsize)
+        ax.set_ylabel('Generator Disagreement Point ($d_G$)', fontsize=self.labelsize)
+        ax2.set_ylabel('Load Disagreement Point ($d_L$)', fontsize=self.labelsize)
+        ax.set_title(f'{self.cm_data.contract_type}: Disagreement Points', fontsize=self.titlesize)
+
+        # Add grid
+        ax.grid(True, linestyle='--', alpha=0.7)
+
+        # Combine legends from both axes
+        lines = [line1, line2]
+        labels = [line.get_label() for line in lines]
+        ax.legend(lines, labels, loc='upper right', fontsize=self.legendsize)
+
+
+        plt.tight_layout()
+        if filename:
+            filepath = os.path.join(self.plots_dir, filename)
+            plt.savefig(filepath, bbox_inches='tight', dpi=300)
+            print(f"Disagreement points plot saved to {filepath}")
+            plt.close(fig)
         else:
             plt.show()

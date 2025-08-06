@@ -17,7 +17,7 @@ def run_capture_price_analysis(input_data_base):
         avg_price = Capture_price_G
         # Set constraints for strike pices equal to the capture price of the generator
     else:
-        avg_price = current_input_data.price_true.mean().mean()
+        avg_price = (current_input_data.PROB * current_input_data.price_true.mean()).sum()
 
        
     current_input_data.strikeprice_max = avg_price

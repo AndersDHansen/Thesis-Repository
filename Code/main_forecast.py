@@ -254,15 +254,15 @@ def main():      # Define simulation parameters
     time_horizon = 20  # Must match the scenarios that were generated
     num_scenarios = 5000  # Must match the scenarios that were generated
     global A_L , A_G, boundary, sensitivity , Barter
-    A_L = 1  # Initial risk aversion
+    A_L = 0  # Initial risk aversion
     A_G = 0  # Initial risk aversion
-    
+
     tau_L = 0.5  # Asymmetry of power between load generator [0,1]
     tau_G = 1-tau_L  # Asymmetry of power between generation provider [0,1] - 1-tau_L
     Barter = False  # Whether to relax the problem (Mc Cormick's relaxation)
     contract_type = "Baseload" # Either "Baseload" or "PAP"
-    sensitivity = False  # Whether to run sensitivity analysis
-    num_sensitivity = 6 # Number of sensitivity analysis points for tau_L and tau_G ( and A_G and A_L)  
+    sensitivity = True  # Whether to run sensitivity analysis
+    num_sensitivity = 5 # Number of sensitivity analysis points for tau_L and tau_G ( and A_G and A_L)  
     # Boundary analysis only on 20 years
     boundary = True  # Whether to run boundary analysis ( it takes awhile to run, so set to False for quick tests)
     print("Loading data and preparing for simulation...")
@@ -284,7 +284,9 @@ def main():      # Define simulation parameters
     }
 
     # Load scenarios from CSV files
-    scenario_pattern = f"{{type}}_scenarios_reduced_{time_horizon}y_{num_scenarios}s.csv"
+    scenario_pattern_reduced = f"{{type}}_scenarios_reduced_{time_horizon}y_{num_scenarios}s.csv"
+    scenario_pattern = f"{{type}}_scenarios_{time_horizon}y_{num_scenarios}s.csv"
+
 
     # Load price scenarios
     prices_df = pd.read_csv(f"Code/scenarios/{scenario_pattern.format(type='price')}", index_col=0)
@@ -303,10 +305,10 @@ def main():      # Define simulation parameters
     LR_df = pd.read_csv(f"Code/scenarios/{scenario_pattern.format(type='load_capture_rate')}", index_col=0)
     LR_df.index = pd.to_datetime(LR_df.index)
 
-    prob_df = pd.read_csv(f"Code/scenarios/{scenario_pattern.format(type='probabilities')}", index_col=0)
-
-    provider = ForecastProvider(prices_df, prod_df,CR_df,load_df,LR_df, prob=prob_df.values.flatten())
-    print(LR_df.shape)
+    prob_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced.format(type='probabilities')}", index_col=0)
+    prob_df = prob_df.values.flatten()
+    prob_df = np.ones(num_scenarios) / num_scenarios  # Uniform probabilities remove laster
+    provider = ForecastProvider(prices_df, prod_df, CR_df, load_df, LR_df, prob=prob_df)
     # Load data from provider into input_data
     input_data.load_data_from_provider(provider)
     

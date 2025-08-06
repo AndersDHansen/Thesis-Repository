@@ -131,12 +131,12 @@ def main():
     # Configuration for loading data 
     time_horizon = 20  # Must match the scenarios that were generated
     num_scenarios = 5000  # Must match the scenarios that were generated
-    A_L = 1  # Initial risk aversion
+    A_L = 0.5  # Initial risk aversion
     A_G = 0.5  # Initial risk aversion
     tau_L = 0.5  # Asymmetry of power between load generator [0,1]
     tau_G = 1-tau_L  # Asymmetry of power between generation provider [0,1] - 1-tau_L
     Barter = False  # Whether to relax the problem (Mc Cormick's relaxation)
-    contract_type = "Baseload" # Either "Baseload" or "PAP"
+    contract_type = "PAP" # Either "Baseload" or "PAP"
 
     # Load data and create InputData object 
     print("Loading data and preparing for simulation...")
@@ -178,7 +178,9 @@ def main():
     LR_df = pd.read_csv(f"Code/scenarios/{scenario_pattern.format(type='load_capture_rate')}", index_col=0)
     LR_df.index = pd.to_datetime(LR_df.index)
 
-    provider = ForecastProvider(prices_df, prod_df,CR_df,load_df,LR_df, prob=1/prices_df.shape[1])
+    prob_df = pd.read_csv(f"Code/scenarios/{scenario_pattern.format(type='probabilities')}", index_col=0)
+
+    provider = ForecastProvider(prices_df, prod_df,CR_df,load_df,LR_df, prob=prob_df.values.flatten())
     
     # Load data from provider into input_data
     input_data.load_data_from_provider(provider)
@@ -249,20 +251,32 @@ def main():
     #alpha_earnings_file = f"alpha_earnings_{contract_type}_{time_horizon}_{num_scenarios}.png"
     earnings_boxplot_file = f"earnings_boxplot_AG={fixed_A_G}_{contract_type}_{time_horizon}_{num_scenarios}.png"
     spider_file = f"parameter_sensitivity_spider_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    tornando_file = f"elasticity_tornado_AG={fixed_A_G}_{contract_type}_{time_horizon}_{num_scenarios}.png"
+    tornado_file = f"elasticity_tornado_AG={fixed_A_G}_{contract_type}_{time_horizon}_{num_scenarios}.png"
+    risk_plot_3D_file = f"risk_3D_plot_AG_{contract_type}_{time_horizon}_{num_scenarios}.png"
+    price_bias_3D_file = f"price_bias_3D_plot_AG_{contract_type}_{time_horizon}_{num_scenarios}.png" 
 
-    
-    
-    # Generate plots 
+    nash_product_file = f"nash_product_evolution_{contract_type}_{time_horizon}_{num_scenarios}.png"
+    utility_space_file = f"utility_space_{contract_type}_{time_horizon}_{num_scenarios}.png"
+    disagreement_points_file = f"disagreement_points_{time_horizon}_{num_scenarios}.png"
+
+    # Generate plots
     # Boxplot of earnings
+    plotter._plot_disagreement_points(filename=os.path.join(plots_folder, disagreement_points_file))
+    plotter._plot_disagreement_points(filename=os.path.join(DROPBOX_DIR, disagreement_points_file))
     plotter._risk_plot_earnings_boxplot( fixed_A_G,  # Use middle value
         A_L_to_plot=params['A_L_values'].tolist(),filename=os.path.join(plots_folder, earnings_boxplot_file))
-    plotter._plot_elasticity_tornado(metrics=['StrikePrice','ContractAmount','Utility_G','Utility_L'],bias=False,filename=os.path.join(plots_folder, tornando_file))
+    plotter._risk_plot_earnings_boxplot( fixed_A_G,  # Use middle value
+        A_L_to_plot=params['A_L_values'].tolist(),filename=os.path.join(DROPBOX_DIR, earnings_boxplot_file))
+    
+    plotter._plot_elasticity_tornado(metrics=['StrikePrice','ContractAmount'],bias=False,filename=os.path.join(plots_folder, tornado_file))
+    plotter._plot_elasticity_tornado(metrics=['StrikePrice','ContractAmount'],bias=False,filename=os.path.join(DROPBOX_DIR, tornado_file))
 
-    plotter._plot_3D_sensitivity_results(sensitivity_type='risk', filename='risk_3d_plot.png')
+    plotter._plot_3D_sensitivity_results(sensitivity_type='risk', filename=os.path.join(plots_folder, risk_plot_3D_file))
+    plotter._plot_3D_sensitivity_results(sensitivity_type='risk', filename=os.path.join(DROPBOX_DIR, risk_plot_3D_file))
 
-    #plotter._nego_plot_earnings_boxplot(filename=os.path.join(plots_folder, negotation_earnings_file))
-    plotter._plot_parameter_sensitivity_spider(bias=False,filename=os.path.join(plots_folder, spider_file))
+    plotter._nego_plot_earnings_boxplot(filename=os.path.join(plots_folder, negotation_earnings_file))
+    plotter._nego_plot_earnings_boxplot(filename=os.path.join(DROPBOX_DIR, negotation_earnings_file))
+    #plotter._plot_parameter_sensitivity_spider(bias=False,filename=os.path.join(plots_folder, spider_file))
     # Risk sensitivity plots - save to both locations
     plotter._plot_sensitivity_results_heatmap('risk',filename=os.path.join(plots_folder, risk_file))
     plotter._plot_sensitivity_results_heatmap('risk',filename=os.path.join(DROPBOX_DIR, risk_file))
@@ -270,21 +284,27 @@ def main():
     # Earnings distribution plots - save to both locations
     plotter._plot_earnings_histograms(
         fixed_A_G,  # Use middle value
-        A_L_to_plot=params['A_L_values'].tolist(),
+        A_L_to_plot=np.array([0.1,0.5,0.9]).tolist(),
         filename=os.path.join(plots_folder, earnings_file)
     )
     plotter._plot_earnings_histograms(
         fixed_A_G,
-        A_L_to_plot=params['A_L_values'].tolist(),
+        A_L_to_plot=np.array([0.1,0.5,0.9]).tolist(),
         filename=os.path.join(DROPBOX_DIR, earnings_file)
     )
-    
+
+    #Threat Point 
+    #plotter._plot_expected_versus_threatpoint(fixed_A_G,A_L_to_plot=np.array([0.1,0.5,0.9]).tolist(),filename=os.path.join(plots_folder, 'threat_point.png'))
+    #plotter._plot_expected_versus_threatpoint(fixed_A_G,A_L_to_plot=np.array([0.1,0.5,0.9]).tolist(),filename=os.path.join(DROPBOX_DIR, 'threat_point.png'))
+
     #Radar Chart 
 
     # Price bias sensitivity plots - save to both locations
     # price_bias or production_bias 
-    plotter._plot_sensitivity_results_heatmap('production_bias',filename=os.path.join(plots_folder, production_bias_file))
+    plotter._plot_sensitivity_results_heatmap('price_bias',filename=os.path.join(plots_folder, price_bias_file))
     plotter._plot_sensitivity_results_heatmap('price_bias',filename=os.path.join(DROPBOX_DIR, price_bias_file))
+    plotter._plot_sensitivity_results_heatmap('production_bias',filename=os.path.join(plots_folder, production_bias_file))
+    plotter._plot_sensitivity_results_heatmap('production_bias',filename=os.path.join(DROPBOX_DIR, production_bias_file))
 
     # Production bias sensitivity plots - save to both locations
     #plotter._plot_sensitivity_results_heatmap('production_bias',filename=os.path.join(plots_folder, production_bias_file))
@@ -292,8 +312,8 @@ def main():
 
 
     # Plot negotiation sensitivity - save to both locations
-    #plotter._plot_sensitivity_results_line('negotiation',filename=os.path.join(plots_folder, negotiation_sensitivity_file))
-    #plotter._plot_sensitivity_results_line('negotiation',filename=os.path.join(DROPBOX_DIR, negotiation_sensitivity_file))
+    plotter._plot_sensitivity_results_line('negotiation',filename=os.path.join(plots_folder, negotiation_sensitivity_file))
+    plotter._plot_sensitivity_results_line('negotiation',filename=os.path.join(DROPBOX_DIR, negotiation_sensitivity_file))
 
     """ 
     # For production sensitivity
@@ -312,11 +332,22 @@ def main():
     plotter._plot_sensitivity('Load_Change', 'Load',filename=os.path.join(plots_folder, load_file))
     """
 
-    plotter._plot_no_contract_boundaries(sensitivity_type='price', filename=os.path.join(plots_folder, boundary_file_production))
-    #plotter._plot_no_contract_boundaries(filename=os.path.join(DROPBOX_DIR, boundary_file))
-    plotter._plot_no_contract_boundaries_all(sensitivity_type='price', filename=os.path.join(plots_folder, boundary_file_all_production))
-    #plotter._plot_no_contract_boundaries_all(filename=os.path.join(DROPBOX_DIR, boundary_file_all)) 
+    plotter._plot_no_contract_boundaries(sensitivity_type='price', filename=os.path.join(plots_folder, boundary_file_price))
+    plotter._plot_no_contract_boundaries(sensitivity_type='price',filename=os.path.join(DROPBOX_DIR, boundary_file_price))
+    plotter._plot_no_contract_boundaries_all(sensitivity_type='price', filename=os.path.join(plots_folder, boundary_file_all_price))
+    plotter._plot_no_contract_boundaries_all(sensitivity_type='price', filename=os.path.join(DROPBOX_DIR, boundary_file_all_price))
+
+    plotter._plot_no_contract_boundaries(sensitivity_type='production', filename=os.path.join(plots_folder, boundary_file_production))
+    plotter._plot_no_contract_boundaries(sensitivity_type='production',filename=os.path.join(DROPBOX_DIR, boundary_file_production))
+    plotter._plot_no_contract_boundaries_all(sensitivity_type='production', filename=os.path.join(plots_folder, boundary_file_all_production))
+    plotter._plot_no_contract_boundaries_all(sensitivity_type='production',filename=os.path.join(DROPBOX_DIR, boundary_file_all_production))
     print("All plots generated successfully!")
+
+    plotter._plot_nash_product_evolution(filename=os.path.join(plots_folder, nash_product_file))
+    plotter._plot_nash_product_evolution(filename=os.path.join(DROPBOX_DIR, nash_product_file))
+    #plotter._plot_summary_dashboard(filename='summary_dashboard.png')
+    plotter._plot_utility_space(filename=os.path.join(plots_folder, utility_space_file))
+    plotter._plot_utility_space(filename=os.path.join(DROPBOX_DIR, utility_space_file))
 
 
 if __name__ == "__main__":

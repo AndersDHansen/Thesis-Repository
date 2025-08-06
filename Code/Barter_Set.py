@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from scipy.stats import linregress
-from utils import calculate_cvar_left, _left_tail_mask
+from utils import calculate_cvar_left, _left_tail_mask, _left_tail_weighted_sum
 from scipy.interpolate import interp1d
 import copy
 
@@ -17,11 +17,15 @@ class Barter_Set:
         #self.BS_strike_max = data.strikeprice_max+ 20*1e-3
 
         if self.data.contract_type == "PAP":
-            self.BS_strike_min = self.data.SR_star_new #-1*1e-3
-            self.BS_strike_max = self.data.SU_star_new #+ 1*1e-3
+            #self.BS_strike_min = self.data.SR_star_new #-1*1e-3
+            #self.BS_strike_max = self.data.SU_star_new #+ 1*1e-3
+            self.BS_strike_min = self.data.strikeprice_min
+            self.BS_strike_max = self.data.strikeprice_max
         else:
-            self.BS_strike_min =  self.data.SR_star_new #-1*1e-3
-            self.BS_strike_max =  self.data.SU_star_new #+ 1*1e-3
+            #self.BS_strike_min =  self.data.SR_star_new #-1*1e-3
+            #self.BS_strike_max =  self.data.SU_star_new #+ 1*1e-3
+            self.BS_strike_min = self.data.strikeprice_min
+            self.BS_strike_max = self.data.strikeprice_max
         print(f"{self.BS_strike_min*1e3:.4f} EUR/MWh")
         print(f"{self.BS_strike_max*1e3:.4f} EUR/MWh")
 
@@ -48,8 +52,8 @@ class Barter_Set:
             rev_plus = EuL + con_plus
             rev_minus = EuL + con_minus
 
-            cvar_plus = calculate_cvar_left(rev_plus, alpha)
-            cvar_minus = calculate_cvar_left(rev_minus, alpha)
+            cvar_plus = calculate_cvar_left(rev_plus,self.data.PROB, self.data.alpha)
+            cvar_minus = calculate_cvar_left(rev_minus, self.data.PROB, self.data.alpha)
 
         else:
             M_plus = M_base + epsilon
@@ -58,8 +62,8 @@ class Barter_Set:
             rev_plus = (M_plus * (price_matrix - strike)).sum(axis=0)
             rev_minus = (M_minus * (price_matrix - strike)).sum(axis=0)
 
-            cvar_plus = calculate_cvar_left(earnings_base + rev_plus, alpha)
-            cvar_minus = calculate_cvar_left(earnings_base + rev_minus, alpha)
+            cvar_plus = calculate_cvar_left(earnings_base + rev_plus,self.data.PROB, self.data.alpha)
+            cvar_minus = calculate_cvar_left(earnings_base + rev_minus, self.data.PROB, self.data.alpha)
 
         return (cvar_plus - cvar_minus) / (2 * epsilon)
 
@@ -83,8 +87,8 @@ class Barter_Set:
                 (1 - gamma_minus) * self.data.production_G * self.data.price_G * self.data.capture_rate + gamma_minus * self.data.production_G * strike
             ).sum(axis=0)
 
-            cvar_plus = calculate_cvar_left(rev_plus, alpha)
-            cvar_minus = calculate_cvar_left(rev_minus, alpha)
+            cvar_plus = calculate_cvar_left(rev_plus,self.data.PROB, alpha)
+            cvar_minus = calculate_cvar_left(rev_minus, self.data.PROB, alpha)
 
         else:
             M_plus = M_base + epsilon
@@ -93,8 +97,8 @@ class Barter_Set:
             rev_plus = (M_plus * (strike - price_matrix)).sum(axis=0)
             rev_minus = (M_minus * (strike - price_matrix)).sum(axis=0)
 
-            cvar_plus = calculate_cvar_left(earnings_base + rev_plus, alpha)
-            cvar_minus = calculate_cvar_left(earnings_base + rev_minus, alpha)
+            cvar_plus = calculate_cvar_left(earnings_base + rev_plus,self.data.PROB, alpha)
+            cvar_minus = calculate_cvar_left(earnings_base + rev_minus,self.data.PROB,alpha)
 
         return (cvar_plus - cvar_minus) / (2 * epsilon)
     
@@ -116,8 +120,8 @@ class Barter_Set:
 
             rev_plus = EuL + con_plus
             rev_minus = EuL + con_minus
-            expected_plus = rev_plus.mean()
-            expected_minus = rev_minus.mean() 
+            expected_plus = (self.data.PROB * rev_plus).sum()
+            expected_minus = (self.data.PROB * rev_minus).sum()
         else:
             M_plus = M_base + epsilon
             M_minus = M_base - epsilon
@@ -126,8 +130,8 @@ class Barter_Set:
             rev_minus =((M_minus ) * (( price_matrix) - (strike ))).sum(axis=0)
 
             # Calculate expected earnings for M_plus and M_minus
-            expected_plus = (earnings_base + rev_plus).mean()
-            expected_minus = (earnings_base + rev_minus).mean()
+            expected_plus = (self.data.PROB*(earnings_base + rev_plus)).sum()
+            expected_minus = (self.data.PROB*(earnings_base + rev_minus)).sum()
 
 
         # Return the finite difference approximation of the derivative
@@ -148,18 +152,18 @@ class Barter_Set:
             rev_minus = ((1-gamma_minus) * self.data.production_G * self.data.price_G * self.data.capture_rate + 
                         gamma_minus * self.data.production_G * strike).sum(axis=0)
 
-            expected_plus = rev_plus.mean()
-            expected_minus = rev_minus.mean()
-            
+            expected_plus = (self.data.PROB * rev_plus).sum()
+            expected_minus = (self.data.PROB * rev_minus).sum()
+
         else:
             M_plus  = M_base  + epsilon
             M_minus = M_base - epsilon
 
             rev_plus = ( M_plus*((strike) - price_matrix)).sum(axis=0)
-            rev_minus = ( M_minus* ((strike)  - price_matrix  )).sum(axis=0)
+            rev_minus = ( M_minus* ((strike)  - price_matrix)).sum(axis=0)
 
-            expected_plus = (earnings_base + rev_plus).mean()
-            expected_minus = (earnings_base + rev_minus).mean()
+            expected_plus = (self.data.PROB*(earnings_base + rev_plus)).sum()
+            expected_minus = (self.data.PROB*(earnings_base + rev_minus)).sum()
 
 
         # Calculate expected earnings for M_plus and M_minus
@@ -178,7 +182,7 @@ class Barter_Set:
             # For each scenario, sum production over time, then apply contract fraction
             earnings = ((1-volume) * self.data.production_G * self.data.price_G * self.data.capture_rate + volume * self.data.production_G * strike).sum(axis=0)
             # earnings: scenario-wise
-            CVaR_G = calculate_cvar_left(earnings, self.data.alpha) 
+            CVaR_G = calculate_cvar_left(earnings,self.data.PROB, self.data.alpha) 
         
         else:
             rev_contract = volume  * (strike - self.data.price_G)
@@ -187,9 +191,9 @@ class Barter_Set:
         
             earnings = no_contract + rev_contract_total
         
-            CVaR_G = calculate_cvar_left(earnings, self.data.alpha)
-        
-        Utility = (1 - self.data.A_G) * earnings.mean() + self.data.A_G * CVaR_G
+            CVaR_G = calculate_cvar_left(earnings,self.data.PROB, self.data.alpha)
+
+        Utility = (1 - self.data.A_G) * (self.data.PROB * earnings).sum() + self.data.A_G * CVaR_G
         return Utility
 
     def Utility_L(self, strike,volume):
@@ -201,16 +205,16 @@ class Barter_Set:
             SML =   (volume* self.data.production_L * self.data.price_L * self.data.capture_rate -  volume * strike * self.data.production_L).sum(axis=0) # Sum across time periods for each scenario
 
             earnings = EuL + SML
-            CVaR_L = calculate_cvar_left(earnings, self.data.alpha)
+            CVaR_L = calculate_cvar_left(earnings,self.data.PROB, self.data.alpha)
         else:
             rev_contract = (volume * (self.data.price_L - strike)).sum(axis=0)
             no_conctract = self.data.net_earnings_no_contract_priceL_L
 
             earnings = no_conctract + rev_contract
-        
-        CVaR_L = calculate_cvar_left(earnings, self.data.alpha)
-    
-        Utility =(1-self.data.A_L)*earnings.mean() + self.data.A_L * CVaR_L
+
+        CVaR_L = calculate_cvar_left(earnings,self.data.PROB, self.data.alpha)
+
+        Utility =(1-self.data.A_L)*(self.data.PROB*earnings).sum() + self.data.A_L * CVaR_L
         
         
         return Utility
@@ -245,18 +249,16 @@ class Barter_Set:
             pi_G = self._Revenue_G(S, gamma)
             pi_L = self._Revenue_L(S, gamma)
 
-            mask_G = _left_tail_mask(pi_G, self.data.alpha)
-            mask_L = _left_tail_mask(pi_L, self.data.alpha)
+            mask_G, ord_G, bidx_G, cdf_G = _left_tail_mask(pi_G,self.data.PROB, self.data.alpha)
+            mask_L, ord_L, bidx_L, cdf_L = _left_tail_mask(pi_L, self.data.PROB, self.data.alpha)
 
-            prod = self.data.production.sum(axis=0)
+            prod = self.data.production.sum()
 
-            tail_G = gamma * prod[mask_G].mean() if mask_G.any() else 0.0
-            tail_L = gamma * prod[mask_L].mean() if mask_L.any() else 0.0
+            tail_G = _left_tail_weighted_sum(self.data.PROB, pi_G, ord_G, bidx_G, cdf_G, self.data.alpha)
+            tail_L = _left_tail_weighted_sum(self.data.PROB, pi_L, ord_L, bidx_L, cdf_L, self.data.alpha)
 
-            num =  (1-self.data.A_L)*prod.mean() + self.data.A_L * tail_L
-            den =  (1-self.data.A_G)*prod.mean() + self.data.A_G * tail_G
-
-    
+            num =  (1-self.data.A_L)*(self.data.PROB * prod).sum() + self.data.A_L * tail_L
+            den =  (1-self.data.A_G)*(self.data.PROB * prod).sum() + self.data.A_G * tail_G
 
             return - num / den
     
@@ -269,19 +271,19 @@ class Barter_Set:
         pi_G = self._Revenue_G(S, gamma)
         pi_L = self._Revenue_L(S, gamma)
 
-        mask_G = _left_tail_mask(pi_G, self.data.alpha)
-        mask_L = _left_tail_mask(pi_L, self.data.alpha)
+        mask_G, ord_G, bidx_G, cdf_G = _left_tail_mask(pi_G,self.data.PROB, self.data.alpha)
+        mask_L, ord_L, bidx_L, cdf_L = _left_tail_mask(pi_L, self.data.PROB, self.data.alpha)
 
 
         rev_G = (self.data.production_G * (S - self.data.price_G * self.data.capture_rate)).sum(axis=0)
 
         rev_L = (self.data.production_L * (self.data.price_L * self.data.capture_rate - S)).sum(axis=0)
 
-        expected_G = rev_G.mean()
-        expected_L = rev_L.mean()
+        expected_G = (self.data.PROB * rev_G.mean()).sum()
+        expected_L = (self.data.PROB * rev_L.mean()).sum()
 
-        tail_G = rev_G[mask_G].mean() if mask_G.any() else 0.0
-        tail_L = rev_L[mask_L].mean() if mask_L.any() else 0.0
+        tail_G = _left_tail_weighted_sum(self.data.PROB, pi_G, ord_G, bidx_G, cdf_G, self.data.alpha)
+        tail_L = _left_tail_weighted_sum(self.data.PROB, pi_L, ord_L, bidx_L, cdf_L, self.data.alpha)
 
         return ((1-self.data.A_L)*expected_L + self.data.A_L * tail_L)/((1-self.data.A_G)*expected_G + self.data.A_G * tail_G)
 
@@ -495,7 +497,7 @@ class Barter_Set:
       
         if self.data.contract_type == "PAP":
             # For PAP, we need to calculate the contract amount as a percentage of production
-            M_space = np.linspace(0, 2, self.n)
+            M_space = np.linspace(0, 1, self.n)
         else:
             M_space = np.linspace(self.data.contract_amount_min, self.data.contract_amount_max, self.n)
         
@@ -836,20 +838,20 @@ class Barter_Set:
                 # generator 
                 earnings_G = ((1-M) * self.data.production_G * self.data.price_G * self.data.capture_rate + M * self.data.production_G * S).sum(axis=0)
 
-                CVaR_G = calculate_cvar_left(earnings_G, self.data.alpha)
+                CVaR_G = calculate_cvar_left(earnings_G,self.data.PROB, self.data.alpha)
                 Utility_G = (1-self.data.A_G)*earnings_G.mean() + self.data.A_G * CVaR_G
                 # Load contract revenue
                 EuL = (-self.data.price_L * self.data.load_CR * self.data.load_scenarios).sum(axis=0)
                 SML = (M * self.data.production_L * self.data.price_L * self.data.capture_rate - M * S * self.data.production_L).sum(axis=0)
                 earnings_L = EuL + SML
-                CVaR_L = calculate_cvar_left(earnings_L, self.data.alpha)
+                CVaR_L = calculate_cvar_left(earnings_L,self.data.PROB, self.data.alpha)
                 Utility_L = (1-self.data.A_L)*earnings_L.mean() + self.data.A_L * CVaR_L
             else:
                 rev_contract_G = M  * (S  - self.data.price_G)
                 rev_contract_total_G = rev_contract_G.sum(axis=0)
                 Expected_G = self.data.net_earnings_no_contract_priceG_G 
                 earnings_G = Expected_G + rev_contract_total_G
-                CVaR_G = calculate_cvar_left(earnings_G, self.data.alpha)
+                CVaR_G = calculate_cvar_left(earnings_G,self.data.PROB, self.data.alpha)
         
                 Utility_G = (1-self.data.A_G)*earnings_G.mean() + self.data.A_G * CVaR_G
             
@@ -858,8 +860,8 @@ class Barter_Set:
                 rev_contract_total_L = rev_contract_L.sum(axis=0)
                 Expected_L = self.data.net_earnings_no_contract_priceL_L
                 earnings_L = Expected_L + rev_contract_total_L
-                CVaR_L = calculate_cvar_left(earnings_L, self.data.alpha)
-        
+                CVaR_L = calculate_cvar_left(earnings_L,self.data.PROB, self.data.alpha)
+
                 Utility_L =(1-self.data.A_L)*earnings_L.mean() + self.data.A_L * CVaR_L
 
             UG_exp.append(earnings_G.mean())

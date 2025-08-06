@@ -15,6 +15,7 @@ import pandas as pd
 from scipy import stats
 import statsmodels.api as sm
 
+import matplotlib.pyplot as plt
 
 # ───────────────────────── helpers ──────────────────────────
 
@@ -62,6 +63,7 @@ class PriceModel:
     theta: Optional[float] = None
     theta_1 : Optional[float] = None  # Trend parameter for OU process
     sigma: Optional[float] = None
+    df : Optional[pd.DataFrame] = None  # Degrees of freedom for GEV
 
 
     @classmethod
@@ -143,7 +145,8 @@ class PriceModel:
                 kappa=kappa, 
                 theta=theta_0,  # Store initial theta
                 theta_1=theta_1_annual,  # Store trend parameter
-                sigma=sigma
+                sigma=sigma,
+                df=df_clean["DK2_EUR/MWh"].resample("ME").mean() *1e-3  # Convert to Mio EUR/GWh
             )
 
         else:
@@ -159,7 +162,8 @@ class PriceModel:
                 kappa=None,
                 theta=None,
                 theta_1=None,
-                sigma=None
+                sigma=None,
+                df=monthly
             )
 
     def simulate(self, sampling_type: str, years: int, sims: int) -> np.ndarray:
@@ -198,7 +202,32 @@ class PriceModel:
             
             # Convert to array with shape (n_steps, sims)
             all_simulations = np.array(all_simulations).T
-            
+
+            # plotting 
+            # Convert to DataFrame for easier plotting
+            """ 
+            hist = self.df  # shape: (n_hist_months,)
+
+            # Line Plot 
+            sim_mean = all_simulations.mean(axis=1)
+            sim_p10 = np.percentile(all_simulations, 10, axis=1)
+            sim_p90 = np.percentile(all_simulations, 90, axis=1)
+            sim_index = _monthly_index(self.df.index[-1], n_steps)
+
+            plt.figure(figsize=(14, 6))
+            hist_index = _monthly_index( self.df.index[0], len(hist))
+            plt.plot(hist_index, hist*1e3, label="Historical", color="black", linewidth=2)
+            plt.plot(sim_index, sim_mean*1e3, label="Simulated Mean", color="tab:blue")
+            #plt.plot(sim_index, all_simulations, color="tab:blue", alpha=0.1, label="Simulated Paths")
+            plt.fill_between(sim_index, sim_p10*1e3, sim_p90*1e3, color="tab:blue", alpha=0.2, label="80% CI")
+            plt.xlabel("Time")
+            plt.ylabel("Price (EUR/MWh)")
+            plt.title("Historical and Simulated OU Process")
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            plt.show()
+            """
             return all_simulations
         
         else:
@@ -465,8 +494,8 @@ def run_scenarios(
 
 if __name__ == "__main__":
     # Example usage
-    years = 5  # 5 years
-    num_scenarios = 50000  # Reduced from 50000 for faster computation
+    years = 20  # 5 years
+    num_scenarios = 5000  # Reduced from 50000 for faster computation
 
     # Wind Profile 
     csv_wind = "Code/Data/Wind/combined_wind_data.csv"  # adjust path if needed

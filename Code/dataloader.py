@@ -137,7 +137,7 @@ def load_data(time_horizon: int, num_scenarios: int, A_G: float, A_L: float,
         TIME=TIME,
         NUM_SCENARIOS=num_scenarios,
         SCENARIOS=SCENARIOS,
-        PROB=PROB,  # ✅ Now an array
+        PROB=PROB,  # 
         generator_contract_capacity=generator_contract_capacity,
         retail_price=retail_price, 
         strikeprice_min=strikeprice_min,

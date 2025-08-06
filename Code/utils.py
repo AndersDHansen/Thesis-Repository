@@ -113,7 +113,7 @@ def build_dataframe(data: Dict[tuple, Any], input_name: str) -> pd.DataFrame:
     
     return df_pivot
 
-def calculate_cvar_left(earnings: np.ndarray, alpha: float) -> float:
+def calculate_cvar_left(earnings: np.ndarray, probabilities: pd.DataFrame, alpha: float) -> float:
     """Calculate the Conditional Value at Risk (CVaR) for given earnings.
     
     Parameters
@@ -128,12 +128,36 @@ def calculate_cvar_left(earnings: np.ndarray, alpha: float) -> float:
     float
         Calculated CVaR value
     """
-    earnings = np.array(earnings)
-    earnings_sorted = np.sort(earnings)
-    var_threshold_lower = np.percentile(earnings_sorted, (1-alpha)*100)
-    left_tail = earnings_sorted[earnings_sorted <= var_threshold_lower]
-    cvar = np.mean(left_tail)
-    """
+
+    earnings      = np.asarray(earnings,      dtype=float)
+    probabilities = np.asarray(probabilities, dtype=float)
+    #probabilities = probabilities / probabilities.sum()
+
+    # Sort from worst to best outcome
+    sorted_idx    = np.argsort(earnings)
+    earnings_sorted = earnings[sorted_idx]
+    probs_sorted    = probabilities[sorted_idx]
+
+    # Accumulate probabilities until we reach the left-tail mass (1-α)
+    tail_prob     = 1.0 - alpha
+    cumulative    = np.cumsum(probs_sorted)
+
+    # First index that pushes cumulative mass past the tail
+    var_idx       = np.searchsorted(cumulative, tail_prob, side="left")
+
+    # Probability already collected strictly before var_idx
+    prob_before   = cumulative[var_idx-1] if var_idx > 0 else 0.0
+    needed_from_i = tail_prob - prob_before          # fraction (0 ≤ … ≤ p_i)
+
+    # Weighted sum of earnings in the tail (include fractional boundary weight)
+    weighted_sum  = np.dot(earnings_sorted[:var_idx], probs_sorted[:var_idx])
+    weighted_sum += earnings_sorted[var_idx] * needed_from_i
+
+    # Divide by exact tail mass to get the conditional expectation
+    cvar = weighted_sum / tail_prob
+   
+    
+    """ 
     # Create figure
     plt.figure(figsize=(10, 6))
     
@@ -141,16 +165,18 @@ def calculate_cvar_left(earnings: np.ndarray, alpha: float) -> float:
     plt.hist(earnings, bins=30)
     
     # Add vertical line for VaR (threshold)
-    plt.axvline(x=var_threshold_lower, color='red', linestyle='--', 
+    plt.axvline(x=earnings_sorted[var_idx], color='red', linestyle='--', 
                 label=f'VaR ({(1-alpha)*100:.0f}% percentile): {cvar:.2f}')
 
     plt.axvline(x=cvar, color='darkred', linestyle='-', 
                 label=f'CVaR (Left Tail Mean): {cvar:.2f}')
     plt.show()
-
     """
+    
 
     return cvar
+
+
 
 def calculate_cvar_right(earnings: np.ndarray, alpha: float) -> float:
     """Calculate the Conditional Value at Risk (CVaR) for given earnings.
@@ -179,11 +205,52 @@ def calculate_cvar_right(earnings: np.ndarray, alpha: float) -> float:
 
 
 
-def _left_tail_mask(arr, alpha):
-    var_threshold_lower = np.percentile(arr, (1-alpha)*100)
-    left_tail = arr <= var_threshold_lower
+def _left_tail_mask(arr, probabilities, alpha):
+
+    """
+    Create boolean mask for left tail based on probability mass
     
-    return left_tail               # boolean mask
+    Args:
+        arr: array of values (e.g., earnings)
+        probabilities: array of probabilities for each value
+        alpha: tail probability (e.g., 0.05 for worst 5%)
+    
+    Returns:
+        boolean mask indicating which scenarios are in the left tail
+    """
+    tail_prob = 1.0 - alpha
+    values        = np.asarray(arr,        dtype=float)
+    probabilities = np.asarray(probabilities, dtype=float)
+    probabilities = probabilities / probabilities.sum()
+
+    order         = np.argsort(values)             # worst → best
+    probs_sorted  = probabilities[order]
+    cdf           = np.cumsum(probs_sorted)
+
+    boundary_idx  = np.searchsorted(cdf, tail_prob, side="left")
+
+    mask = np.zeros_like(values, dtype=bool)
+    mask[order[:boundary_idx + 1]] = True
+
+    return mask, order, boundary_idx, cdf   # boolean mask indicating left tail scenarios
+
+def _left_tail_weighted_sum(probabilities, weights,
+                            order, boundary_idx, cdf, tail_prob):
+        """
+        Σ_i  p_i * w_i  over the left tail, taking only the fraction
+        of the boundary scenario that is actually in the tail.
+        """
+        probabilities = probabilities[order]
+        weights       = weights[order]
+
+        prob_before   = cdf[boundary_idx - 1] if boundary_idx > 0 else 0.0
+        need          = tail_prob - prob_before             # 0 ≤ need ≤ p_boundary
+
+        # full scenarios strictly before the boundary
+        total  = np.dot(probabilities[:boundary_idx], weights[:boundary_idx])
+        # fractional contribution from the boundary scenario
+        total += weights[boundary_idx] * need
+        return total
 
 def _right_tail_mask(arr, alpha):
     var_threshold_lower = np.percentile(arr, (1-alpha)*100)
@@ -191,39 +258,39 @@ def _right_tail_mask(arr, alpha):
 
     return right_tail               # boolean mask
 
-def _calculate_S_star_PAP_G(x,gamma,A,alpha, production,price,capture_rate):
+def _calculate_S_star_PAP_G(x,gamma,A,alpha, production,price,capture_rate,PROB):
     """
     Calculate the optimal strike price S* for the Producer-side in PAP.
     """
     S =x[0]
     pi_G = ((1-gamma) * production * price * capture_rate + 
                     gamma * production * S).sum(axis=0)
-    
-    mask_G = _left_tail_mask(pi_G, alpha)
+
+    mask_G = _left_tail_mask(pi_G, PROB, alpha)
 
     rev_G = (production * (S - price * capture_rate)).sum(axis=0)
-    expected_G = rev_G.mean()
+    expected_G = (PROB * rev_G).sum()
 
     # Risk adjustment
 
-    tail_G = rev_G[mask_G].mean() if mask_G.any() else 0.0
+    tail_G = (PROB[mask_G] * rev_G[mask_G]).sum() if mask_G.any() else 0.0
     # Calculate S_star
     S_star = (1-A) * expected_G + A * tail_G
 
     return S_star
 
-def _calculate_S_star_PAP_L(x,gamma,A,alpha, production,price,capture_rate,load_CR, load_scenarios):
+def _calculate_S_star_PAP_L(x,gamma,A,alpha, production,price,capture_rate,load_CR, load_scenarios, PROB):
     """
     Calculate the optimal strike price S* for the Producer-side in PAP.
     """
     S = x[0]
     pi_L = (-price * load_CR * load_scenarios).sum(axis=0) + (gamma * production * (price * capture_rate - S)).sum(axis=0)
 
-    mask_L = _left_tail_mask(pi_L, alpha)
+    mask_L = _left_tail_mask(pi_L, PROB, alpha)
 
     rev_L = (production * ( price * capture_rate - S)).sum(axis=0)
-    expected_L = rev_L.mean()
-    tail_L = rev_L[mask_L].mean() if mask_L.any() else 0
+    expected_L = (PROB * rev_L).sum()
+    tail_L = (PROB[mask_L] * rev_L[mask_L]).sum() if mask_L.any() else 0
 
     # Calculate S_star
     S_star = (1 - A) * expected_L + A * tail_L
@@ -232,39 +299,39 @@ def _calculate_S_star_PAP_L(x,gamma,A,alpha, production,price,capture_rate,load_
 
 
 
-def _calculate_S_star_BL_G(x,M,A,alpha, production,price,capture_rate):
+def _calculate_S_star_BL_G(x,M,A,alpha, production,price,capture_rate,PROB):
     """
     Calculate the optimal strike price S* for the Producer-side in PAP.
     """
     S =x[0]
     pi_G = (production * price * capture_rate + (S - price)*M).sum(axis=0)
-    
-    mask_G = _left_tail_mask(pi_G, alpha)
+
+    mask_G, ord_G, bidx_G, cdf_G  = _left_tail_mask(pi_G,PROB, alpha)
+
+
 
     rev_G = (-M * price).sum(axis=0)
-    expected_G = rev_G.mean()
+    expected_G = (PROB * rev_G).sum()
 
-    # Risk adjustment
 
-    tail_G = rev_G[mask_G].mean() if mask_G.any() else 0.0
+    tail_G = _left_tail_weighted_sum(PROB,pi_G,ord_G, bidx_G, cdf_G, alpha)
     # Calculate S_star
     S_star = (1-A) * expected_G + A * tail_G
 
     return S_star
 
-def _calculate_S_star_BL_L(x,M,A,alpha, production,price,capture_rate,load_CR, load_scenarios):
+def _calculate_S_star_BL_L(x,M,A,alpha, production,price,capture_rate,load_CR, load_scenarios,PROB):
     """
     Calculate the optimal strike price S* for the Producer-side in PAP.
     """
     S = x[0]
     pi_L = (-load_scenarios*load_CR*price).sum(axis=0) + ((price-S) * M).sum(axis=0)
 
-    mask_L = _left_tail_mask(pi_L, alpha)
+    mask_L, ord_L, bidx_L, cdf_L  = _left_tail_mask(pi_L,PROB, alpha)
 
     rev_L = (M * price).sum(axis=0)
-    expected_L = rev_L.mean()
-    tail_L = rev_L[mask_L].mean() if mask_L.any() else 0
-
+    expected_L = (PROB * rev_L).sum()
+    tail_L = _left_tail_weighted_sum(PROB,pi_L,ord_L, bidx_L, cdf_L, alpha) 
     # Calculate S_star
     S_star = (1 - A) * expected_L + A * tail_L
 
