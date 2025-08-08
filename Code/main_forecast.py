@@ -265,17 +265,17 @@ def main():      # Define simulation parameters
     A_L = 0.5  # Initial risk aversion
     A_G = 0.5  # Initial risk aversion
     scenario_time_horizon = 20  # Must match the scenarios that were generated
-    opt_time_horizon = 20  # Time horizon for optimization (in years)
+    opt_time_horizon = 5  # Time horizon for optimization (in years)
     num_scenarios = 2000  # Must match the scenarios that were generated
 
 
     # Monte carlo price scenarios 
-    monte_price = False
+    monte_price = True
 
     tau_L = 0.5  # Asymmetry of power between load generator [0,1]
     tau_G = 1-tau_L  # Asymmetry of power between generation provider [0,1] - 1-tau_L
-    Barter = True  # Whether to relax the problem (Mc Cormick's relaxation)
-    contract_type = "PAP" # Either "Baseload" or "PAP"
+    Barter = False  # Whether to relax the problem (Mc Cormick's relaxation)
+    contract_type = "Baseload" # Either "Baseload" or "PAP"
     sensitivity = True  # Whether to run sensitivity analysis
     num_sensitivity = 5 # Number of sensitivity analysis points for tau_L and tau_G ( and A_G and A_L)  
     # Boundary analysis only on 20 years
@@ -313,26 +313,40 @@ def main():      # Define simulation parameters
         prices_df.index = pd.to_datetime(prices_df.index)
         prices_df.columns = prod_df.columns
         prob_df = np.ones(prices_df.shape[1]) / prices_df.shape[1]
+
+
+        CR_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced_monte.format(type='capture_rate')}", index_col=0)
+        CR_df.index = pd.to_datetime(CR_df.index)
+
+        # Load load scenarios
+        load_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced_monte.format(type='load')}", index_col=0)
+        load_df.index = pd.to_datetime(load_df.index)
+
+        LR_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced_monte.format(type='load_capture_rate')}", index_col=0)
+        LR_df.index = pd.to_datetime(LR_df.index)
+
     else:
         prices_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced.format(type='price')}", index_col=0)
         prices_df.index = pd.to_datetime(prices_df.index)
         prob_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced.format(type='probabilities')}", index_col=0)
         prob_df = prob_df.values.flatten()
 
+        CR_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced.format(type='capture_rate')}", index_col=0)
+        CR_df.index = pd.to_datetime(CR_df.index)
+
+        # Load load scenarios
+        load_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced.format(type='load')}", index_col=0)
+        load_df.index = pd.to_datetime(load_df.index)
+
+        LR_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced.format(type='load_capture_rate')}", index_col=0)
+        LR_df.index = pd.to_datetime(LR_df.index)
+
+
     # Load production scenarios
  
 
     # Load capture rate scenarios
-    CR_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced.format(type='capture_rate')}", index_col=0)
-    CR_df.index = pd.to_datetime(CR_df.index)
-
-    # Load load scenarios
-    load_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced.format(type='load')}", index_col=0)
-    load_df.index = pd.to_datetime(load_df.index)
-
-    LR_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced.format(type='load_capture_rate')}", index_col=0)
-    LR_df.index = pd.to_datetime(LR_df.index)
-
+ 
     
     #prob_df = np.ones(num_scenarios) / num_scenarios  # Uniform probabilities remove laster
     provider = ForecastProvider(prices_df, prod_df, CR_df, load_df, LR_df, prob=prob_df)

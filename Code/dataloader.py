@@ -85,7 +85,13 @@ class InputData:
         self.load_scenarios = self.load_scenarios.iloc[:self.n_time]
         self.load_CR = self.load_CR.iloc[:self.n_time]
 
-        # Set maximum strike price
+        # set columns 
+        price_columns = self.price_true.columns
+        self.production.columns = price_columns
+        self.capture_rate.columns = price_columns   
+        self.load_scenarios.columns = price_columns
+        self.load_CR.columns = price_columns
+        
         Capture_price_L = self.price_true * self.load_CR
         Capture_price_L_avg = weighted_expected_value(Capture_price_L, self.PROB)
         self.strikeprice_max = Capture_price_L_avg * 1.2

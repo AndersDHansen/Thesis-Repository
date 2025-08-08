@@ -1404,7 +1404,7 @@ class Plotting_Class:
         ax_L.tick_params(axis='both', labelsize= self.legendsize)
         ax_L.grid(True, linestyle='--', alpha=0.9, axis='y')
 
-        plt.suptitle(f"{self.cm_data.contract_type}: Earnings Distribution by Risk Aversion, $A_G$ = {self.cm_data.A_G}", fontsize=self.suptitlesize)
+        plt.suptitle(f"{self.cm_data.contract_type}: Earnings Distribution by Risk Aversion, $A_G$ = {fixed_A_G}", fontsize=self.suptitlesize)
         
         plt.tight_layout()
 
