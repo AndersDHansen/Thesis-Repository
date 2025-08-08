@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import os
-from utils import calculate_cvar_left
+from utils import calculate_cvar_left, weighted_expected_value
 from sklearn.linear_model import LinearRegression
 from matplotlib.colors import LinearSegmentedColormap
 import matplotlib.patches as mpatches
@@ -343,27 +343,27 @@ class Plotting_Class:
         # Determine contract type and setup units/labels
         is_pap = self.cm_data.contract_type == "PAP"
         has_gamma = 'Gamma' in results_df.columns
+        expected_production = self.cm_data.expected_production /8760*1000  # IN MW
+
         
         if is_pap and has_gamma:
-            capture_price_pap = self.cm_data.Capture_price_G_avg * 1e3  # Convert to EUR/MWh
+            capture_price_pap = self.cm_data.Capture_price_G_avg*1e3  # Convert to EUR/MWh
             # PAP contract with Gamma
             units = ['€/MWh', 'MW']
             production_type = "MWh"
-            expected_production = self.cm_data.production.mean().mean() / self.cm_data.hours_in_year * 1e3  # IN MW
             
             # Convert contract amount to MW for PAP
             results_df['ContractAmount'] = results_df['ContractAmount'] 
         else:
-            avg_price = self.cm_data.price_true.mean().mean() * 1e3  # Convert to EUR/MWh
+            avg_price = self.cm_data.expected_price *1e3  # Convert to EUR/MWh
             # Non-PAP contract
             units = ['€/MWh', 'MWh']
             capture_price_type = "\mathbb{E}(\lambda) (EUR/MWh)"
             production_type = "MWh"
-            expected_production = self.cm_data.production.mean().mean() / self.cm_data.hours_in_year * 1e3  # IN MWh
             
             # Keep original contract amount and create yearly version
             #results_df['ContractAmount_yearly'] = results_df['ContractAmount'].round(2)
-            results_df['ContractAmount'] = results_df['ContractAmount']  / self.cm_data.hours_in_year * 1e3 
+            results_df['ContractAmount'] = results_df['ContractAmount']  
         
         # Sort results by parameter
         results_sorted = results_df.sort_values(cfg['param_col'])
@@ -1397,14 +1397,12 @@ class Plotting_Class:
         ax_G.set_xlabel('Risk Aversion Level $(A_L)$',fontsize=self.labelsize)
         ax_G.set_ylabel('Generator Revenue (Mio EUR)',fontsize=self.labelsize)
         ax_G.grid(True, linestyle='--', alpha=0.9, axis='y')
-        ax_G.legend(loc='upper left', fontsize=self.legendsize, framealpha=0.8)
 
         ax_L.set_title(f'Load Revenue',fontsize=self.titlesize)
         ax_L.set_xlabel('Risk Aversion Level $(A_L)$', fontsize=self.labelsize)
         ax_L.set_ylabel('Load Revenue (Mio EUR)',fontsize=self.labelsize)
         ax_L.tick_params(axis='both', labelsize= self.legendsize)
         ax_L.grid(True, linestyle='--', alpha=0.9, axis='y')
-        ax_L.legend(loc='upper left', fontsize=self.legendsize, framealpha=0.8)
 
         plt.suptitle(f"{self.cm_data.contract_type}: Earnings Distribution by Risk Aversion, $A_G$ = {self.cm_data.A_G}", fontsize=self.suptitlesize)
         
@@ -1569,13 +1567,13 @@ class Plotting_Class:
         """
         # Set titles and labels
         ax_G.set_title(f'Generator Revenue',fontsize=self.titlesize)
-        ax_G.set_xlabel('Negotiation Power $(\tau_G)$',fontsize=self.labelsize)
+        ax_G.set_xlabel('Negotiation Power $(\\tau_G)$',fontsize=self.labelsize)
         ax_G.set_ylabel('Generator Revenue (Mio EUR)',fontsize=self.labelsize)
         ax_G.tick_params(axis='both', labelsize= self.legendsize-1)
         ax_G.grid(True, linestyle='--', alpha=0.7, axis='y')
 
         ax_L.set_title(f'Load Revenue',fontsize=self.titlesize)
-        ax_L.set_xlabel('Negotiation Power $(\tau_G)$', fontsize=self.labelsize)
+        ax_L.set_xlabel('Negotiation Power $(\\tau_L)$', fontsize=self.labelsize)
         ax_L.set_ylabel('Load Revenue (Mio EUR)',fontsize=self.labelsize)
         ax_L.tick_params(axis='both', labelsize= self.legendsize-1)
         ax_L.grid(True, linestyle='--', alpha=0.7, axis='y')
@@ -1945,7 +1943,7 @@ class Plotting_Class:
                 width = bar.get_width()
                 y     = bar.get_y() + bar.get_height()/2
 
-                offset = 9            # points   (change to taste)
+                offset = 13            # points   (change to taste)
                 ha     = 'left'
                 if width < 0:         # put the label on the other side of negative bars
                     offset = -5

@@ -4,6 +4,7 @@ import numpy as np
 from sklearn_extra.cluster import KMedoids
 from sklearn.datasets import make_blobs
 import matplotlib.pyplot as plt
+from utils import weighted_expected_value
 class InputData:
     """
     Class to store and manage input data for power system simulations.
@@ -11,9 +12,9 @@ class InputData:
     def __init__(
         self, 
         TIME: list,
+        n_time: int,
         NUM_SCENARIOS: int,
         SCENARIOS: list,
-        PROB: float,
         generator_contract_capacity: int,
 
         retail_price: float,
@@ -36,9 +37,9 @@ class InputData:
     ):
         # Basic system parameters
         self.TIME = TIME
+        self.n_time = n_time
         self.NUM_SCENARIOS = NUM_SCENARIOS
         self.SCENARIOS_L = SCENARIOS
-        self.PROB = PROB
     
         # Generator parameters
         self.generator_contract_capacity = generator_contract_capacity
@@ -77,23 +78,16 @@ class InputData:
         self.load_scenarios = provider.load_matrix()
         self.load_CR = provider.load_capture_rate_matrix()
         self.PROB = provider._prob
+        
+        self.price_true = self.price_true.iloc[:self.n_time]
+        self.production = self.production.iloc[:self.n_time]
+        self.capture_rate = self.capture_rate.iloc[:self.n_time]
+        self.load_scenarios = self.load_scenarios.iloc[:self.n_time]
+        self.load_CR = self.load_CR.iloc[:self.n_time]
 
-        
-        if hasattr(self, 'price_true') and self.price_true is not None:
-            n_time = self.price_true.shape[0]
-            n_scenarios = self.price_true.shape[1]
-            
-            # Update TIME and SCENARIOS_L
-            self.TIME = list(range(n_time))
-            self.SCENARIOS_L = list(range(n_scenarios))
-            self.NUM_SCENARIOS = n_scenarios
-            
-            
-            print(f"Data loaded: {n_time} time periods, {n_scenarios} scenarios")
-        
         # Set maximum strike price
         Capture_price_L = self.price_true * self.load_CR
-        Capture_price_L_avg = Capture_price_L.mean().mean()
+        Capture_price_L_avg = weighted_expected_value(Capture_price_L, self.PROB)
         self.strikeprice_max = Capture_price_L_avg * 1.2
         
         print(f"Strike price bounds: {self.strikeprice_min:.6f} to {self.strikeprice_max:.6f}")
@@ -105,18 +99,18 @@ class InputData:
 
         return 
 
-def load_data(time_horizon: int, num_scenarios: int, A_G: float, A_L: float, 
+def load_data(opt_time_horizon: int, num_scenarios: int, A_G: float, A_L: float, 
               tau_L: float, tau_G: float, Barter: bool = True, 
               contract_type: str = "baseload") -> InputData:
     """Load system data and create initial parameters."""
     
     # Time parameters - these will be overwritten by load_data_from_provider
     # but we need them for initialization
-    TIME = list(range(0, time_horizon))  # Convert to list for consistency
+    TIME = list(range(0, opt_time_horizon))  # Convert to list for consistency
     SCENARIOS = list(range(num_scenarios))  # Convert to list for consistency
-    
+    n_time = opt_time_horizon
+
     # Initialize PROB as array, not scalar
-    PROB = np.ones(num_scenarios) / num_scenarios  # ✅ Fixed: Array from start
     
     generator_contract_capacity = 30  # MW
     
@@ -135,9 +129,9 @@ def load_data(time_horizon: int, num_scenarios: int, A_G: float, A_L: float,
     
     input_data = InputData(
         TIME=TIME,
+        n_time=n_time,
         NUM_SCENARIOS=num_scenarios,
         SCENARIOS=SCENARIOS,
-        PROB=PROB,  # 
         generator_contract_capacity=generator_contract_capacity,
         retail_price=retail_price, 
         strikeprice_min=strikeprice_min,

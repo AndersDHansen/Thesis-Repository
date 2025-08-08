@@ -6,6 +6,7 @@ import pandas as pd
 import copy
 from tqdm import tqdm
 from contract_negotiation import ContractNegotiation
+from utils import weighted_expected_value
 import gurobipy as gp
 
 def run_capture_price_analysis(input_data_base):
@@ -13,11 +14,10 @@ def run_capture_price_analysis(input_data_base):
     current_input_data = copy.deepcopy(input_data_base)
 
     if current_input_data.contract_type == "PAP":
-        Capture_price_G = ((current_input_data.price_true * current_input_data.capture_rate * current_input_data.production).sum()/current_input_data.production.sum()).mean()
-        avg_price = Capture_price_G
+        avg_price = weighted_expected_value(current_input_data.capture_rate * current_input_data.price_true, current_input_data.PROB)
         # Set constraints for strike pices equal to the capture price of the generator
     else:
-        avg_price = (current_input_data.PROB * current_input_data.price_true.mean()).sum()
+        avg_price = weighted_expected_value(current_input_data.price_true, current_input_data.PROB)
 
        
     current_input_data.strikeprice_max = avg_price
@@ -343,7 +343,8 @@ def run_capture_rate_sensitivity_analysis(input_data_base):
         
         try:
             # Create a modified provider with adjusted capture rates
-            modified_capture_rate =  current_input_data.capture_rate + current_input_data.capture_rate.mean().mean() * cr_mult
+            expected_capture = weighted_expected_value(current_input_data.capture_rate, current_input_data.PROB)
+            modified_capture_rate =  current_input_data.capture_rate + expected_capture * cr_mult
             current_input_data.capture_rate = modified_capture_rate
             
             
@@ -417,12 +418,14 @@ def run_price_sensitivity_analysis(input_data_base,sensitivity_type):
         current_input_data = copy.deepcopy(input_data_base)
         
         try:
+            expected_price = weighted_expected_value(current_input_data.price_true, current_input_data.PROB)
+
             # Create a modified provider with adjusted capture rates
             if sensitivity_type == "mean":
-                modified_price =  current_input_data.price_true + current_input_data.price_true.mean().mean() * price_mult
+                modified_price =  current_input_data.price_true + expected_price * price_mult
 
             elif sensitivity_type == "std":
-                modified_price =  current_input_data.price_true.mean().mean() + (1+price_mult) * ( current_input_data.price_true - current_input_data.price_true.mean().mean())
+                modified_price =  expected_price + (1+price_mult) * ( current_input_data.price_true - expected_price)
 
             current_input_data.price_true = modified_price
             # Run the contract negotiation with modified capture rates
@@ -499,12 +502,14 @@ def run_production_sensitivity_analysis(input_data_base,sensitivity_type):
             # Create a modified provider with adjusted capture rates
         try:
 
+            expected_production = weighted_expected_value(current_input_data.production, current_input_data.PROB)
+
              # Create a modified provider with adjusted capture rates
             if sensitivity_type == "mean":
-                modified_production =  current_input_data.production + current_input_data.production.mean().mean() * prod_mult
+                modified_production =  current_input_data.production + expected_production * prod_mult
 
             elif sensitivity_type == "std":
-                modified_production =  current_input_data.production.mean().mean() + (1+prod_mult) * ( current_input_data.production - current_input_data.production.mean().mean())
+                modified_production =  expected_production + (1+prod_mult) * ( current_input_data.production - expected_production)
 
             current_input_data.production = modified_production
             
@@ -580,8 +585,9 @@ def run_load_capture_rate_sensitivity_analysis(input_data_base):
         current_input_data = copy.deepcopy(input_data_base)
         
         try:
+            expected_load = weighted_expected_value(current_input_data.load_CR, current_input_data.PROB)
             # Create a modified provider with adjusted capture rates
-            modified_load_CR =  current_input_data.load_CR + current_input_data.load_CR.mean().mean() * lr_mult
+            modified_load_CR =  current_input_data.load_CR + expected_load * lr_mult
 
             current_input_data.load_CR = modified_load_CR
 
@@ -655,13 +661,15 @@ def run_load_scenario_sensitivity_analysis(input_data_base,sensitivity_type):
         # Use a fresh copy for each iteration
         current_input_data = copy.deepcopy(input_data_base)
         
+        
         try:
-            
+            expected_load = weighted_expected_value(current_input_data.load_scenarios, current_input_data.PROB)
+
             if sensitivity_type == "mean":
-                modified_load_scenarios =  current_input_data.load_scenarios + current_input_data.load_scenarios.mean().mean() * load_mult
+                modified_load_scenarios =  current_input_data.load_scenarios + expected_load * load_mult
 
             elif sensitivity_type == "std":
-                modified_load_scenarios =  current_input_data.load_scenarios.mean().mean() + (1+load_mult) * ( current_input_data.load_scenarios - current_input_data.load_scenarios.mean().mean())
+                modified_load_scenarios =  expected_load + (1+load_mult) * ( current_input_data.load_scenarios - expected_load)
 
             current_input_data.load_scenarios = modified_load_scenarios
             

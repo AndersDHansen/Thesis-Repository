@@ -51,6 +51,7 @@ class OPFProvider(PriceProductionProvider):
     @property
     def probability(self) -> float:
         return self._rPROB
+        
 
 class ForecastProvider(PriceProductionProvider):
     def __init__(self, price_df: pd.DataFrame, prod_df: pd.DataFrame, CR_df: pd.DataFrame, load_df: pd.DataFrame, load_CR : pd.DataFrame, prob: float):
@@ -112,6 +113,28 @@ def build_dataframe(data: Dict[tuple, Any], input_name: str) -> pd.DataFrame:
     df_pivot = df_pivot.drop(columns=['Time'])
     
     return df_pivot
+
+
+def weighted_expected_value(arr, scenario_probs):
+    """
+    Calculate the probability-weighted expected value for a T x S array.
+    arr: array-like, shape (T, S)
+    scenario_probs: array-like, shape (S,)
+    Returns: float (expected value)
+    """
+    arr = np.array(arr)
+    scenario_probs = np.array(scenario_probs)
+    scenario_probs = scenario_probs / scenario_probs.sum()  # Normalize
+    
+    if arr.ndim == 1:
+        # arr is shape (S,)
+        expected_value = np.sum(arr * scenario_probs)
+    else:
+        # arr is shape (T, S)
+        scenario_totals = arr.sum(axis=0)  # Sum over time for each scenario
+        expected_value = np.sum(scenario_totals * scenario_probs) / arr.shape[0]  # Average over time
+    return expected_value
+
 
 def calculate_cvar_left(earnings: np.ndarray, probabilities: pd.DataFrame, alpha: float) -> float:
     """Calculate the Conditional Value at Risk (CVaR) for given earnings.
@@ -241,7 +264,7 @@ def _left_tail_weighted_sum(probabilities, weights,
         of the boundary scenario that is actually in the tail.
         """
         probabilities = probabilities[order]
-        weights       = weights[order]
+        weights       = weights.iloc[order]
 
         prob_before   = cdf[boundary_idx - 1] if boundary_idx > 0 else 0.0
         need          = tail_prob - prob_before             # 0 ≤ need ≤ p_boundary
@@ -249,7 +272,7 @@ def _left_tail_weighted_sum(probabilities, weights,
         # full scenarios strictly before the boundary
         total  = np.dot(probabilities[:boundary_idx], weights[:boundary_idx])
         # fractional contribution from the boundary scenario
-        total += weights[boundary_idx] * need
+        total += weights.iloc[boundary_idx] * need
         return total
 
 def _right_tail_mask(arr, alpha):
@@ -266,16 +289,20 @@ def _calculate_S_star_PAP_G(x,gamma,A,alpha, production,price,capture_rate,PROB)
     pi_G = ((1-gamma) * production * price * capture_rate + 
                     gamma * production * S).sum(axis=0)
 
-    mask_G = _left_tail_mask(pi_G, PROB, alpha)
+
+    mask_G, ord_G, bidx_G, cdf_G  = _left_tail_mask(pi_G,PROB, alpha)
+
 
     rev_G = (production * (S - price * capture_rate)).sum(axis=0)
     expected_G = (PROB * rev_G).sum()
 
-    # Risk adjustment
-
-    tail_G = (PROB[mask_G] * rev_G[mask_G]).sum() if mask_G.any() else 0.0
+    tail_G = _left_tail_weighted_sum(PROB,pi_G,ord_G, bidx_G, cdf_G, alpha)
     # Calculate S_star
     S_star = (1-A) * expected_G + A * tail_G
+
+    # Risk adjustment
+
+
 
     return S_star
 
@@ -286,12 +313,10 @@ def _calculate_S_star_PAP_L(x,gamma,A,alpha, production,price,capture_rate,load_
     S = x[0]
     pi_L = (-price * load_CR * load_scenarios).sum(axis=0) + (gamma * production * (price * capture_rate - S)).sum(axis=0)
 
-    mask_L = _left_tail_mask(pi_L, PROB, alpha)
-
+    mask_L, ord_L, bidx_L, cdf_L  = _left_tail_mask(pi_L,PROB, alpha)
     rev_L = (production * ( price * capture_rate - S)).sum(axis=0)
     expected_L = (PROB * rev_L).sum()
-    tail_L = (PROB[mask_L] * rev_L[mask_L]).sum() if mask_L.any() else 0
-
+    tail_L = _left_tail_weighted_sum(PROB,pi_L,ord_L, bidx_L, cdf_L, alpha)
     # Calculate S_star
     S_star = (1 - A) * expected_L + A * tail_L
 
@@ -308,11 +333,8 @@ def _calculate_S_star_BL_G(x,M,A,alpha, production,price,capture_rate,PROB):
 
     mask_G, ord_G, bidx_G, cdf_G  = _left_tail_mask(pi_G,PROB, alpha)
 
-
-
     rev_G = (-M * price).sum(axis=0)
     expected_G = (PROB * rev_G).sum()
-
 
     tail_G = _left_tail_weighted_sum(PROB,pi_G,ord_G, bidx_G, cdf_G, alpha)
     # Calculate S_star

@@ -24,7 +24,7 @@ class Barter_Set:
         else:
             #self.BS_strike_min =  self.data.SR_star_new #-1*1e-3
             #self.BS_strike_max =  self.data.SU_star_new #+ 1*1e-3
-            self.BS_strike_min = self.data.strikeprice_min
+            self.BS_strike_min = self.data.strikeprice_min-5*1e-3
             self.BS_strike_max = self.data.strikeprice_max
         print(f"{self.BS_strike_min*1e3:.4f} EUR/MWh")
         print(f"{self.BS_strike_max*1e3:.4f} EUR/MWh")
@@ -254,8 +254,8 @@ class Barter_Set:
 
             prod = self.data.production.sum()
 
-            tail_G = _left_tail_weighted_sum(self.data.PROB, pi_G, ord_G, bidx_G, cdf_G, self.data.alpha)
-            tail_L = _left_tail_weighted_sum(self.data.PROB, pi_L, ord_L, bidx_L, cdf_L, self.data.alpha)
+            tail_G = _left_tail_weighted_sum(self.data.PROB, prod, ord_G, bidx_G, cdf_G, self.data.alpha)
+            tail_L = _left_tail_weighted_sum(self.data.PROB, prod, ord_L, bidx_L, cdf_L, self.data.alpha)
 
             num =  (1-self.data.A_L)*(self.data.PROB * prod).sum() + self.data.A_L * tail_L
             den =  (1-self.data.A_G)*(self.data.PROB * prod).sum() + self.data.A_G * tail_G
@@ -282,8 +282,8 @@ class Barter_Set:
         expected_G = (self.data.PROB * rev_G.mean()).sum()
         expected_L = (self.data.PROB * rev_L.mean()).sum()
 
-        tail_G = _left_tail_weighted_sum(self.data.PROB, pi_G, ord_G, bidx_G, cdf_G, self.data.alpha)
-        tail_L = _left_tail_weighted_sum(self.data.PROB, pi_L, ord_L, bidx_L, cdf_L, self.data.alpha)
+        tail_G = _left_tail_weighted_sum(self.data.PROB, rev_G, ord_G, bidx_G, cdf_G, self.data.alpha)
+        tail_L = _left_tail_weighted_sum(self.data.PROB, rev_L, ord_L, bidx_L, cdf_L, self.data.alpha)
 
         return ((1-self.data.A_L)*expected_L + self.data.A_L * tail_L)/((1-self.data.A_G)*expected_G + self.data.A_G * tail_G)
 
@@ -383,9 +383,11 @@ class Barter_Set:
         duG_2 = np.gradient(V_2_High[:,0],dx,edge_order=1)
         duL_2 = np.gradient(V_2_High[:,1],dx,edge_order=1)
         slope_2 = duL_2 / duG_2
+        """ 
         fig, axes = plt.subplots(1, 2, figsize=(14, 10))
         ax_1 = axes[0]
         ax_2 = axes[1]
+      
         ax_1.plot(M_space, slope_1, label='Slope Curve 1', color='blue'  )
         if self.data.contract_type == "PAP":
             ax_1.plot(M_space, dS_SR, label='dS Curve 1', color='black', linestyle='--')
@@ -397,6 +399,7 @@ class Barter_Set:
         else:
             ax_2.axhline(self.dS, color='black', linestyle='--', label='dS Threshold')
         plt.show()
+        """
 
         # Lemma 5 MR (L)
         cvgradientv1_L =  self.cvar_derivative_wrt_M_L(M_space[0],self.data.net_earnings_no_contract_priceL_L, self.data.price_L, self.BS_strike_min, self.data.alpha)
@@ -465,6 +468,11 @@ class Barter_Set:
         first_index_positive_v2 = np.argmax(mask_positive_v2)
         M_SR = M_space[first_index_negative_v1]
         M_SU = M_space[first_index_positive_v2]
+
+        # TEMP REMOVE WHEN CODE HAS BEEN FIXED! 
+        if self.data.contract_type == "PAP":
+            M_SR = 1
+            M_SU = 1
 
         if cond_MR == False and cond_MU == False:
             print("No Barter Set exists, as the conditions of Lemma 5 are not satisfied.")
@@ -600,7 +608,9 @@ class Barter_Set:
         plt.xlabel('Utility G')
         plt.ylabel('Utility L')
 
-        plt.title(f'Barter Set Type: {self.data.contract_type} A_G={self.data.A_G:.2f}, A_L={self.data.A_L:.2f}, K_G={self.data.K_G_lambda_Sigma:.2f}, K_L={self.data.K_L_lambda_Sigma:.2f}')
+        #plt.title(f'Barter Set Type: {self.data.contract_type} A_G={self.data.A_G:.2f}, A_L={self.data.A_L:.2f}, K_G={self.data.K_G_lambda_Sigma:.2f}, K_L={self.data.K_L_lambda_Sigma:.2f}')
+        plt.title(f'Barter Set: {self.data.contract_type} A_G={self.data.A_G:.2f}, A_L={self.data.A_L:.2f}')
+
 
         plt.legend()
         plt.grid()
@@ -959,4 +969,85 @@ class Barter_Set:
         plt.tight_layout()
         plt.show()
 
-       
+    
+    def plot_multiple_barter_sets(self, AG_values, AL_values):
+        """
+        Plot barter sets for different risk aversion pairs (A_G, A_L).
+        Each pair gets its own color and label.
+        Only the barter curve and shaded region are plotted.
+        """
+        import matplotlib.pyplot as plt
+        import matplotlib.cm as cm
+        colors = cm.viridis(np.linspace(0, 1, len(AG_values) * len(AL_values)))
+        #colors = cm.get_cmap('tab10', len(AG_values) * len(AL_values))
+
+        color_idx = 0
+
+        plt.figure(figsize=(10, 8))
+
+        for AG in AG_values:
+            for AL in AL_values:
+                # Set risk aversion for this pair
+                self.data.A_G = AG
+                self.data.A_L = AL
+
+                zeta_G = self.Utility_G(self.BS_strike_min, 0)
+                zeta_L = self.Utility_L(self.BS_strike_min, 0)
+
+                # Recompute barter set for this pair
+                V_1_Low = np.zeros((self.n, 2))
+                V_2_High = np.zeros((self.n, 2))
+                if self.data.contract_type == "PAP":
+                    M_space = np.linspace(0, 1, self.n)
+                else:
+                    M_space = np.linspace(self.data.contract_amount_min, self.data.contract_amount_max, self.n)
+
+                for i in range(len(M_space)):
+                    V_1_Low[i, 0] = self.Utility_G(self.BS_strike_min, M_space[i]) - zeta_G
+                    V_1_Low[i, 1] = self.Utility_L(self.BS_strike_min, M_space[i]) - zeta_L
+                    V_2_High[i, 0] = self.Utility_G(self.BS_strike_max, M_space[i]) - zeta_G
+                    V_2_High[i, 1] = self.Utility_L(self.BS_strike_max, M_space[i]) - zeta_L
+
+                # Find optimal contract points
+                cond_MR, cond_MU, slope_1, slope_2, M_SR, M_SU, _, _ = self.calculate_utility_derivative(M_space, V_1_Low, V_2_High)
+                UG_Low_Mopt = self.Utility_G(self.BS_strike_min, M_SR) - zeta_G
+                UL_Low_Mopt = self.Utility_L(self.BS_strike_min, M_SR) - zeta_L
+                UG_High_Mopt = self.Utility_G(self.BS_strike_max, M_SU) - zeta_G
+                UL_High_Mopt = self.Utility_L(self.BS_strike_max, M_SU) - zeta_L
+
+                MR_point = [UG_Low_Mopt, UL_Low_Mopt]
+                MU_point = [UG_High_Mopt, UL_High_Mopt]
+
+                # Slope and intersections (normalized)
+                slope_opt = np.round((MU_point[1] - MR_point[1]) / (MU_point[0] - MR_point[0]), 8)
+                b_opt = MR_point[1] - slope_opt * MR_point[0]
+                vertical_intersect_y = slope_opt * 0 + b_opt  # zeta_G normalized to 0
+                horizontal_intersect_x = (0 - b_opt) / slope_opt  # zeta_L normalized to 0
+
+                # Create barter set region polygon (normalized)
+                vertices = np.array([
+                    [0, 0],  # Start at normalized threat point
+                    [0, vertical_intersect_y],  # Vertical intersection
+                    [horizontal_intersect_x, 0],  # Horizontal intersection
+                    [0, 0]  # Back to start
+                ])
+
+                plt.plot([MR_point[0], MU_point[0]], [MR_point[1], MU_point[1]], color=colors[color_idx],  linestyle='--', alpha=0.5)
+
+                label = f"A_G={AG:.2f}, A_L={AL:.2f}"
+
+                plt.plot(V_1_Low[:, 0], V_1_Low[:, 1], color=colors[color_idx], label=label, linewidth=2)
+                plt.plot(V_2_High[:, 0], V_2_High[:, 1], color=colors[color_idx], linewidth=2)
+                plt.scatter(V_1_Low[0, 0], V_1_Low[0, 1], color='black', marker='o', s=50)
+                polygon = plt.Polygon(vertices, facecolor=colors[color_idx], alpha=0.2, edgecolor=None)
+                plt.gca().add_patch(polygon)
+                color_idx += 1
+
+        plt.xlabel('Utility G - Zeta_G', fontsize=14)
+        plt.ylabel('Utility L - Zeta_L', fontsize=14)
+        plt.title(f'{self.data.contract_type} Normalized Barter Sets for Different Risk Aversion Pairs', fontsize=16)
+        plt.legend(fontsize=12, loc='center left', bbox_to_anchor=(1, 0.5))
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.legend()
+        plt.grid(True)
+        plt.show()

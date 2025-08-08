@@ -104,7 +104,9 @@ def run_contract_negotiation_sensitivity(input_data: InputData,
 
         # Production boundary analysis
         boundary_data_input_production = copy.deepcopy(original_data)
-        boundary_results_df_production = run_no_contract_boundary_analysis_production(boundary_data_input_production)
+        #boundary_results_df_production = run_no_contract_boundary_analysis_production(boundary_data_input_production)
+        boundary_results_df_production = pd.DataFrame()
+
     else:
         boundary_results_df_price = pd.DataFrame()
         boundary_results_df_production = pd.DataFrame()
@@ -195,7 +197,10 @@ def save_results_to_csv(results_dict, contract_type,time_horizon, num_scenarios)
     result_names_risk = ["risk_sensitivity", "risk_earnings_sensitivity",'boundary_results_price', 'boundary_results_production']
     
     for i, result_name in enumerate(result_names_not_risk):
-        base_filename = f"{result_name}_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}y_{num_scenarios}"
+        if monte_price == True:
+            base_filename = f"monte_{result_name}_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}y_{num_scenarios}"
+        else:
+            base_filename = f"{result_name}_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}y_{num_scenarios}"
         
         data = results_dict[result_name]
         # Skip if the data is not a DataFrame
@@ -208,7 +213,11 @@ def save_results_to_csv(results_dict, contract_type,time_horizon, num_scenarios)
 
     
     for i, result_name in enumerate(result_names_risk):
-        base_filename = f"{result_name}_{contract_type}_{time_horizon}y_{num_scenarios}"
+        if monte_price == True:
+            base_filename =  f"monte_{result_name}_{contract_type}_{time_horizon}y_{num_scenarios}"
+        else:
+            base_filename = f"{result_name}_{contract_type}_{time_horizon}y_{num_scenarios}"
+        
         # Handle boundary_results specially since it's a list of dictionaries
         data = results_dict[result_name]
         if result_name == ("boundary_results_price" or "boundary_results_production") and boundary == True:
@@ -251,23 +260,29 @@ def save_results_to_csv(results_dict, contract_type,time_horizon, num_scenarios)
 
  
 def main():      # Define simulation parameters
-    time_horizon = 20  # Must match the scenarios that were generated
-    num_scenarios = 5000  # Must match the scenarios that were generated
-    global A_L , A_G, boundary, sensitivity , Barter
-    A_L = 0  # Initial risk aversion
-    A_G = 0  # Initial risk aversion
+    
+    global A_L , A_G, boundary, sensitivity , Barter, scenario_time_horizon, opt_time_horizon, monte_price
+    A_L = 0.5  # Initial risk aversion
+    A_G = 0.5  # Initial risk aversion
+    scenario_time_horizon = 20  # Must match the scenarios that were generated
+    opt_time_horizon = 20  # Time horizon for optimization (in years)
+    num_scenarios = 2000  # Must match the scenarios that were generated
+
+
+    # Monte carlo price scenarios 
+    monte_price = False
 
     tau_L = 0.5  # Asymmetry of power between load generator [0,1]
     tau_G = 1-tau_L  # Asymmetry of power between generation provider [0,1] - 1-tau_L
-    Barter = False  # Whether to relax the problem (Mc Cormick's relaxation)
-    contract_type = "Baseload" # Either "Baseload" or "PAP"
+    Barter = True  # Whether to relax the problem (Mc Cormick's relaxation)
+    contract_type = "PAP" # Either "Baseload" or "PAP"
     sensitivity = True  # Whether to run sensitivity analysis
     num_sensitivity = 5 # Number of sensitivity analysis points for tau_L and tau_G ( and A_G and A_L)  
     # Boundary analysis only on 20 years
-    boundary = True  # Whether to run boundary analysis ( it takes awhile to run, so set to False for quick tests)
+    boundary = False  # Whether to run boundary analysis ( it takes awhile to run, so set to False for quick tests)
     print("Loading data and preparing for simulation...")
     input_data = load_data(
-        time_horizon=time_horizon,
+        opt_time_horizon=opt_time_horizon,
         num_scenarios=num_scenarios,
         A_G=A_G,
         A_L=A_L,
@@ -284,30 +299,42 @@ def main():      # Define simulation parameters
     }
 
     # Load scenarios from CSV files
-    scenario_pattern_reduced = f"{{type}}_scenarios_reduced_{time_horizon}y_{num_scenarios}s.csv"
-    scenario_pattern = f"{{type}}_scenarios_{time_horizon}y_{num_scenarios}s.csv"
+    scenario_pattern_reduced = f"{{type}}_scenarios_reduced_{scenario_time_horizon}y_{num_scenarios}s.csv"
+    scenario_pattern_reduced_monte = f"{{type}}_scenarios_monte_{scenario_time_horizon}y_{num_scenarios}s.csv"
 
 
+    #scenario_pattern = f"{{type}}_scenarios_{time_horizon}y_{num_scenarios}s.csv"
+
+    prod_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced.format(type='production')}", index_col=0)
+    prod_df.index = pd.to_datetime(prod_df.index)
     # Load price scenarios
-    prices_df = pd.read_csv(f"Code/scenarios/{scenario_pattern.format(type='price')}", index_col=0)
-    prices_df.index = pd.to_datetime(prices_df.index)
+    if monte_price == True:
+        prices_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced_monte.format(type='price')}", index_col=0)
+        prices_df.index = pd.to_datetime(prices_df.index)
+        prices_df.columns = prod_df.columns
+        prob_df = np.ones(prices_df.shape[1]) / prices_df.shape[1]
+    else:
+        prices_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced.format(type='price')}", index_col=0)
+        prices_df.index = pd.to_datetime(prices_df.index)
+        prob_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced.format(type='probabilities')}", index_col=0)
+        prob_df = prob_df.values.flatten()
 
     # Load production scenarios
-    prod_df = pd.read_csv(f"Code/scenarios/{scenario_pattern.format(type='production')}", index_col=0)
-    prod_df.index = pd.to_datetime(prod_df.index)
+ 
 
     # Load capture rate scenarios
-    CR_df = pd.read_csv(f"Code/scenarios/{scenario_pattern.format(type='capture_rate')}", index_col=0)
-    CR_df.index = pd.to_datetime(CR_df.index)    # Load load scenarios
-    load_df = pd.read_csv(f"Code/scenarios/{scenario_pattern.format(type='load')}", index_col=0)
+    CR_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced.format(type='capture_rate')}", index_col=0)
+    CR_df.index = pd.to_datetime(CR_df.index)
+
+    # Load load scenarios
+    load_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced.format(type='load')}", index_col=0)
     load_df.index = pd.to_datetime(load_df.index)
 
-    LR_df = pd.read_csv(f"Code/scenarios/{scenario_pattern.format(type='load_capture_rate')}", index_col=0)
+    LR_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced.format(type='load_capture_rate')}", index_col=0)
     LR_df.index = pd.to_datetime(LR_df.index)
 
-    prob_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced.format(type='probabilities')}", index_col=0)
-    prob_df = prob_df.values.flatten()
-    prob_df = np.ones(num_scenarios) / num_scenarios  # Uniform probabilities remove laster
+    
+    #prob_df = np.ones(num_scenarios) / num_scenarios  # Uniform probabilities remove laster
     provider = ForecastProvider(prices_df, prod_df, CR_df, load_df, LR_df, prob=prob_df)
     # Load data from provider into input_data
     input_data.load_data_from_provider(provider)
@@ -323,7 +350,7 @@ def main():      # Define simulation parameters
             params['tau_L'],
             params['tau_G']
         )
-        save_results_to_csv(results, contract_type,time_horizon, num_scenarios)
+        save_results_to_csv(results, contract_type,opt_time_horizon, num_scenarios)
     else:
         cm_model = run_contract_negotiation(
             copy.deepcopy(input_data),

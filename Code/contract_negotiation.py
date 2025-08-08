@@ -6,7 +6,7 @@ import gurobipy as gp
 import pandas as pd
 import matplotlib.pyplot as plt
 from gurobipy import GRB
-from utils import Expando, _calculate_S_star_BL_G,_calculate_S_star_BL_L, _calculate_S_star_PAP_L, build_dataframe, calculate_cvar_left, _left_tail_weighted_sum, _left_tail_mask, _calculate_S_star_PAP_G
+from utils import Expando, _calculate_S_star_BL_G,_calculate_S_star_BL_L, _calculate_S_star_PAP_L, build_dataframe, calculate_cvar_left, _left_tail_weighted_sum, _left_tail_mask, _calculate_S_star_PAP_G , weighted_expected_value
 from Barter_Set import Barter_Set
 from tqdm import tqdm
 import scipy.stats as stats
@@ -56,7 +56,7 @@ class ContractNegotiation:
     
         ####### Prices ########
         mean_price_s = self.data.price_true.mean() # Per scenario across T
-        self.data.expected_price = (self.data.PROB * mean_price_s).sum()
+        self.data.expected_price = weighted_expected_value(self.data.price_true, self.data.PROB)
         # Calculate scenario sums and expectations
         self.data.lambda_sum_true_per_scenario = self.data.price_true.sum(axis=0)
         self.data.expected_lambda_sum_true = (self.data.PROB*self.data.lambda_sum_true_per_scenario).sum()
@@ -69,18 +69,17 @@ class ContractNegotiation:
         self.data.left_Cvar_neg_lambda_sum_true = calculate_cvar_left(-self.data.lambda_sum_true_per_scenario, self.data.PROB, self.data.alpha) 
         #self.data.left_Cvar_neg_lambdas = calculate_cvar_left(-self.data.price_true,self.data.PROB, self.data.alpha)
         # Production 
-        mean_production = (self.data.PROB * self.data.production.mean()).sum()
 
                
         ########### Capture Prices ##########
         # Calculate capture prices using loaded capture rates
         self.data.Capture_price_G = self.data.price_true * self.data.capture_rate
         self.data.Capture_price_h_G = self.data.Capture_price_G 
-        self.data.Capture_price_G_avg = (self.data.PROB * self.data.Capture_price_h_G.mean()).sum()
+        self.data.Capture_price_G_avg = weighted_expected_value(self.data.Capture_price_h_G, self.data.PROB)
 
         # Per Scenario
         self.data.production_per_scenario = self.data.production.sum(axis=0)
-        self.data.expected_production = (self.data.PROB * self.data.production_per_scenario).sum()
+        self.data.expected_production = weighted_expected_value(self.data.production, self.data.PROB)
 
 
   
@@ -96,8 +95,8 @@ class ContractNegotiation:
         self.data.lambda_sum_L_per_scenario = self.data.price_L.sum(axis=0)
 
         #Calculate biased production using mean production
-        self.data.production_G = (self.data.K_G_prod * mean_production) + self.data.production
-        self.data.production_L = (self.data.K_L_prod * mean_production) + self.data.production
+        self.data.production_G = (self.data.K_G_prod * self.data.expected_production) + self.data.production
+        self.data.production_L = (self.data.K_L_prod * self.data.expected_production) + self.data.production
 
 
         # Using loaded capture rate and production scenarios
@@ -133,6 +132,7 @@ class ContractNegotiation:
 
         # Prepare for threat point calculations
         # Calculate dimensions from loaded scenarios
+        """
         num_scenarios = self.data.price_true.shape[1]
         time_periods = self.data.price_true.shape[0]
         
@@ -141,7 +141,6 @@ class ContractNegotiation:
         self.data.K_G_lambda_Sigma = self.data.K_G_price * self.data.expected_lambda_sum_true
         self.data.K_L_lambda_Sigma = self.data.K_L_price * self.data.expected_lambda_sum_true
 
-        """ 
         if self.data.contract_type == 'Baseload': 
             # Determine the *absolute* bias constants K_G and K_L for the equations
             # Based on Theorem 1, K_G/K_L are absolute shifts.:
@@ -289,12 +288,12 @@ class ContractNegotiation:
             gamma = 0 
 
             def constraint_S_star_G(x):
-                S_star = _calculate_S_star_PAP_G(x  , gamma,self.data.A_G, self.data.alpha, self.data.production_G, self.data.price_G,self.data.capture_rate)
+                S_star = _calculate_S_star_PAP_G(x  , gamma,self.data.A_G, self.data.alpha, self.data.production_G, self.data.price_G,self.data.capture_rate,self.data.PROB)
                 print(f"Calculated S_star_G: {S_star}")
                 return S_star
 
             def constraint_S_star_L(x):
-                S_star = _calculate_S_star_PAP_L(x, gamma,self.data.A_L, self.data.alpha, self.data.production_L, self.data.price_L,self.data.capture_rate,self.data.load_CR,self.data.load_scenarios)
+                S_star = _calculate_S_star_PAP_L(x, gamma,self.data.A_L, self.data.alpha, self.data.production_L, self.data.price_L,self.data.capture_rate,self.data.load_CR,self.data.load_scenarios,self.data.PROB)
                 print(f"Calculated S_star_L: {S_star}")
                 return S_star
 
@@ -305,7 +304,7 @@ class ContractNegotiation:
             result_G = minimize(
                 _calculate_S_star_PAP_G,
                 x0=initial_guess,
-                args=(gamma,self.data.A_G, self.data.alpha, self.data.production_G, self.data.price_G,self.data.capture_rate),
+                args=(gamma,self.data.A_G, self.data.alpha, self.data.production_G, self.data.price_G,self.data.capture_rate,self.data.PROB),
                 bounds=bounds,
                 constraints=[nonlinear_constraint_S_star_G],
                 method='SLSQP',
@@ -314,7 +313,7 @@ class ContractNegotiation:
             result_L = minimize(
                 _calculate_S_star_PAP_L,
                 x0=initial_guess,
-                args=(gamma,self.data.A_L, self.data.alpha, self.data.production_L, self.data.price_L,self.data.capture_rate,self.data.load_CR,self.data.load_scenarios),
+                args=(gamma,self.data.A_L, self.data.alpha, self.data.production_L, self.data.price_L,self.data.capture_rate,self.data.load_CR,self.data.load_scenarios,self.data.PROB),
                 bounds=bounds,
                 constraints=[nonlinear_constraint_S_star_L],
                 method='trust-constr',
@@ -328,8 +327,7 @@ class ContractNegotiation:
             print(f"Optimal Strike Price (Generator-side): {self.data.SR_star_new*1e3:.4f} EUR/MWh")
             print(f"Optimal Strike Price (Load-side): {self.data.SU_star_new*1e3:.4f} EUR/MWh")
             print()
-            """
-            
+            """ 
     def _build_variables_PAP(self):
 
          # Auxiliary variables for logaritmic terms
@@ -823,7 +821,7 @@ class ContractNegotiation:
         print( self.results.utility_G)
         print( self.results.utility_L)
 
-        self.results.Nash_Product = ((self.results.utility_G - self.data.Zeta_G)**(0.5) * (self.results.utility_L - self.data.Zeta_L)**(0.5))
+        self.results.Nash_Product = ((self.results.utility_G - self.data.Zeta_G)) * (self.results.utility_L - self.data.Zeta_L)
         # Save accumulated revenues
         self.results.earnings_G = EuG + SMG
         self.results.earnings_L = EuL + SML
@@ -837,18 +835,23 @@ class ContractNegotiation:
         if self.model.status == GRB.OPTIMAL:
             self._save_results()
             #self.scipy_optimization()
-            self.display_results()
+            #self.display_results()
             #self.scipy_display_results()
 
             if self.data.Barter == True:
-                #self.manual_optimization(plot=True)
-                #self.batch_manual_optimization(A_G_values= [0.0,0.5,0.9],A_L_values=[0.0])
                 BS = Barter_Set(self.data,self.results,self.scipy_results)
                 BS.Plotting_Barter_Set()
+                A_L_values = [0.1,0.5,0.9]
+                A_G_values = [0.1,0.9]
+
+                BS.plot_multiple_barter_sets(A_G_values, A_L_values)
+                #self.manual_optimization(plot=True)
+                #self.batch_manual_optimization(A_G_values= [0.0,0.5,0.9],A_L_values=[0.0])
+              
         else:
             #self._save_results()
-            BS = Barter_Set(self.data,self.results,self.scipy_results)
-            BS.Plotting_Barter_Set()
+            #BS = Barter_Set(self.data,self.results,self.scipy_results)
+            #BS.Plotting_Barter_Set()
 
             #self.scipy_optimization()
             #self.scipy_display_results()

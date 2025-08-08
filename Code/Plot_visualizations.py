@@ -63,7 +63,10 @@ def load_sensitivity_results(contract_type,time_horizon, num_scenarios):
 
     # Load each CSV file for risk results
     for result_name in result_names_risk:
-        csv_filename = f"{result_name}_{contract_type}_{time_horizon}y_{num_scenarios}.csv"
+        if monte_price == True:
+            csv_filename = f"monte_{result_name}_{contract_type}_{time_horizon}y_{num_scenarios}.csv"
+        else:
+            csv_filename = f"{result_name}_{contract_type}_{time_horizon}y_{num_scenarios}.csv"
         file_path = os.path.join(csv_folder, csv_filename)
         df = pd.read_csv(file_path, index_col=0)
         results[result_name] = df
@@ -71,7 +74,10 @@ def load_sensitivity_results(contract_type,time_horizon, num_scenarios):
 
     # Load each CSV file for no-risk results
     for result_name in result_names_not_risk:
-        csv_filename = f"{result_name}_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}y_{num_scenarios}.csv"
+        if monte_price == True:
+            csv_filename = f"monte_{result_name}_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}y_{num_scenarios}.csv"
+        else:
+            csv_filename = f"{result_name}_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}y_{num_scenarios}.csv"
         file_path = os.path.join(csv_folder, csv_filename)
         df = pd.read_csv(file_path, index_col=0)
         results[result_name] = df
@@ -127,9 +133,10 @@ def load_boundary_results(sensitivity,contract_type,time_horizon, num_scenarios)
         return []
 
 def main():
-    global time_horizon, num_scenarios, A_G, A_L, tau_L, tau_G, Barter, contract_type
+    global scenario_time_horizon, opt_time_horizon, num_scenarios, A_G, A_L, tau_L, tau_G, Barter, contract_type, monte_price
     # Configuration for loading data 
-    time_horizon = 20  # Must match the scenarios that were generated
+    scenario_time_horizon = 20  # Must match the scenarios that were generated
+    opt_time_horizon = 20  # Must match the scenarios that were generated
     num_scenarios = 5000  # Must match the scenarios that were generated
     A_L = 0.5  # Initial risk aversion
     A_G = 0.5  # Initial risk aversion
@@ -137,11 +144,11 @@ def main():
     tau_G = 1-tau_L  # Asymmetry of power between generation provider [0,1] - 1-tau_L
     Barter = False  # Whether to relax the problem (Mc Cormick's relaxation)
     contract_type = "PAP" # Either "Baseload" or "PAP"
-
+    monte_price = False  # Whether to use Monte Carlo price scenarios
     # Load data and create InputData object 
     print("Loading data and preparing for simulation...")
     input_data = load_data(
-        time_horizon=time_horizon,
+        opt_time_horizon=opt_time_horizon,
         num_scenarios=num_scenarios,
         A_G=A_G,
         A_L=A_L,
@@ -156,17 +163,29 @@ def main():
         'A_G_values': np.array([0,0.1,0.25,0.5,0.75,0.9,1]),  # A in [0,1]
         'A_L_values':np.array([0,0.1,0.25,0.5,0.75,0.9,1]),
     }
-    fixed_A_G=0.5 # Fixed at middle value for plotting purposes
+    fixed_A_G=1 # Fixed at middle value for plotting purposes
     # Load scenarios from CSV files
-    scenario_pattern = f"{{type}}_scenarios_reduced_{time_horizon}y_{num_scenarios}s.csv"
-
-    # Load price scenarios
-    prices_df = pd.read_csv(f"Code/scenarios/{scenario_pattern.format(type='price')}", index_col=0)
-    prices_df.index = pd.to_datetime(prices_df.index)
-
+    scenario_pattern = f"{{type}}_scenarios_reduced_{scenario_time_horizon}y_{num_scenarios}s.csv"
+    scenario_pattern_reduced_monte = f"{{type}}_scenarios_monte_{scenario_time_horizon}y_{num_scenarios}s.csv"
+    
+    
     # Load production scenarios
     prod_df = pd.read_csv(f"Code/scenarios/{scenario_pattern.format(type='production')}", index_col=0)
     prod_df.index = pd.to_datetime(prod_df.index)
+    
+    # Load price scenarios
+    if monte_price:
+        prices_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced_monte.format(type='price')}", index_col=0)
+        prices_df.index = pd.to_datetime(prices_df.index)
+        prices_df.columns = prod_df.columns
+        prob_df = np.ones(prices_df.shape[1]) / prices_df.shape[1]
+    else:
+        prices_df = pd.read_csv(f"Code/scenarios/{scenario_pattern.format(type='price')}", index_col=0)
+        prices_df.index = pd.to_datetime(prices_df.index)
+        prob_df = pd.read_csv(f"Code/scenarios/{scenario_pattern.format(type='probabilities')}", index_col=0)
+        prob_df = prob_df.values.flatten()
+
+    
 
     # Load capture rate scenarios
     CR_df = pd.read_csv(f"Code/scenarios/{scenario_pattern.format(type='capture_rate')}", index_col=0)
@@ -178,9 +197,8 @@ def main():
     LR_df = pd.read_csv(f"Code/scenarios/{scenario_pattern.format(type='load_capture_rate')}", index_col=0)
     LR_df.index = pd.to_datetime(LR_df.index)
 
-    prob_df = pd.read_csv(f"Code/scenarios/{scenario_pattern.format(type='probabilities')}", index_col=0)
 
-    provider = ForecastProvider(prices_df, prod_df,CR_df,load_df,LR_df, prob=prob_df.values.flatten())
+    provider = ForecastProvider(prices_df, prod_df,CR_df,load_df,LR_df, prob=prob_df)
     
     # Load data from provider into input_data
     input_data.load_data_from_provider(provider)
@@ -188,11 +206,11 @@ def main():
 
     # Load sensitivity results from CSV
 
-    sensitivity_results = load_sensitivity_results(contract_type,time_horizon, num_scenarios)
+    sensitivity_results = load_sensitivity_results(contract_type,opt_time_horizon, num_scenarios)
     
     # Load boundary results from JSON
-    boundary_results_price = load_boundary_results("price",contract_type,time_horizon, num_scenarios)
-    boundary_results_production = load_boundary_results("production",contract_type,time_horizon, num_scenarios)
+    boundary_results_price = load_boundary_results("price",contract_type,opt_time_horizon, num_scenarios)
+    boundary_results_production = load_boundary_results("production",contract_type,opt_time_horizon, num_scenarios)
 
     # Create contract model data instance (simplified)
     contract_model = ContractNegotiation(input_data)
@@ -228,36 +246,70 @@ def main():
     print("\nGenerating plots...")
 
     # Generate filenames
-    risk_file = f"risk_sensitivity_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    earnings_file = f"earnings_distribution_AG={fixed_A_G}_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    price_bias_file = f"price_bias_sensitivity_AG={A_G}_AL={A_L}{contract_type}_{time_horizon}_{num_scenarios}.png"
-    production_bias_file = f"production_bias_sensitivity_AG={A_G}_AL={A_L}{contract_type}_{time_horizon}_{num_scenarios}.png"
-    price_file_mean = f"price_sensitivity_mean_AG={A_G}_AL={A_L}{contract_type}_{time_horizon}_{num_scenarios}.png"
-    price_file_std = f"price_sensitivity_std_AG={A_G}_AL={A_L}{contract_type}_{time_horizon}_{num_scenarios}.png"
-    production_file_mean = f"production_sensitivity_mean_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    production_file_std = f"production_sensitivity_std_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    load_file_mean = f"load_sensitivity_mean_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    load_file_std = f"load_sensitivity_std_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    prod_CR_file = f"prod_CR_sensitivity_AG={A_G}_AL={A_L}{contract_type}_{time_horizon}_{num_scenarios}.png"
-    load_CR_file = f"load_CR_sensitivity_AG={A_G}_AL={A_L}{contract_type}_{time_horizon}_{num_scenarios}.png"
-    boundary_file_price = f"no_contract_boundary_price_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    boundary_file_all_price = f"no_contract_boundary_all_price_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    boundary_file_production = f"no_contract_boundary_production_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    boundary_file_all_production = f"no_contract_boundary_all_production_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    negotiation_sensitivity_file = f"negotiation_sensitivity_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    negotation_earnings_file = f"negotiation_earnings_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    load_ratio_file = f"load_ratio_sensitivity_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    #alpha_sensitivity_file = f"alpha_sensitivity_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    #alpha_earnings_file = f"alpha_earnings_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    earnings_boxplot_file = f"earnings_boxplot_AG={fixed_A_G}_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    spider_file = f"parameter_sensitivity_spider_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    tornado_file = f"elasticity_tornado_AG={fixed_A_G}_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    risk_plot_3D_file = f"risk_3D_plot_AG_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    price_bias_3D_file = f"price_bias_3D_plot_AG_{contract_type}_{time_horizon}_{num_scenarios}.png" 
+    if monte_price:
+        scenario_suffix = "monte"
+        risk_file = f"{scenario_suffix}_risk_sensitivity_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        earnings_file = f"{scenario_suffix}_earnings_distribution_AG={fixed_A_G}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        price_bias_file = f"{scenario_suffix}_price_bias_sensitivity_AG={A_G}_AL={A_L}{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        production_bias_file = f"{scenario_suffix}_production_bias_sensitivity_AG={A_G}_AL={A_L}{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        price_file_mean = f"{scenario_suffix}_price_sensitivity_mean_AG={A_G}_AL={A_L}{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        price_file_std = f"{scenario_suffix}_price_sensitivity_std_AG={A_G}_AL={A_L}{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        production_file_mean = f"{scenario_suffix}_production_sensitivity_mean_AG={A_G}_AL={A_L}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        production_file_std = f"{scenario_suffix}_production_sensitivity_std_AG={A_G}_AL={A_L}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        load_file_mean = f"{scenario_suffix}_load_sensitivity_mean_AG={A_G}_AL={A_L}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        load_file_std = f"{scenario_suffix}_load_sensitivity_std_AG={A_G}_AL={A_L}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        prod_CR_file = f"{scenario_suffix}_prod_CR_sensitivity_AG={A_G}_AL={A_L}{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        load_CR_file = f"{scenario_suffix}_load_CR_sensitivity_AG={A_G}_AL={A_L}{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        boundary_file_price = f"{scenario_suffix}_no_contract_boundary_price_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        boundary_file_all_price = f"{scenario_suffix}_no_contract_boundary_all_price_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        boundary_file_production = f"{scenario_suffix}_no_contract_boundary_production_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        boundary_file_all_production = f"{scenario_suffix}_no_contract_boundary_all_production_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        negotiation_sensitivity_file = f"{scenario_suffix}_negotiation_sensitivity_AG={A_G}_AL={A_L}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        negotation_earnings_file = f"{scenario_suffix}_negotiation_earnings_AG={A_G}_AL={A_L}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        load_ratio_file = f"{scenario_suffix}_load_ratio_sensitivity_AG={A_G}_AL={A_L}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        #alpha_sensitivity_file = f"alpha_sensitivity_{contract_type}_{time_horizon}_{num_scenarios}.png"
+        #alpha_earnings_file = f"alpha_earnings_{contract_type}_{time_horizon}_{num_scenarios}.png"
+        earnings_boxplot_file = f"{scenario_suffix}_earnings_boxplot_AG={fixed_A_G}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        spider_file = f"{scenario_suffix}_parameter_sensitivity_spider_AG={A_G}_AL={A_L}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        tornado_file = f"{scenario_suffix}_elasticity_tornado_AG={fixed_A_G}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        risk_plot_3D_file = f"{scenario_suffix}_risk_3D_plot_AG_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        price_bias_3D_file = f"{scenario_suffix}_price_bias_3D_plot_AG_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
 
-    nash_product_file = f"nash_product_evolution_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    utility_space_file = f"utility_space_{contract_type}_{time_horizon}_{num_scenarios}.png"
-    disagreement_points_file = f"disagreement_points_{time_horizon}_{num_scenarios}.png"
+        nash_product_file = f"{scenario_suffix}_nash_product_evolution_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        utility_space_file = f"{scenario_suffix}_utility_space_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        disagreement_points_file = f"{scenario_suffix}_disagreement_points_{opt_time_horizon}_{num_scenarios}.png"
+
+    else:
+        risk_file = f"risk_sensitivity_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        earnings_file = f"earnings_distribution_AG={fixed_A_G}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        price_bias_file = f"price_bias_sensitivity_AG={A_G}_AL={A_L}{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        production_bias_file = f"production_bias_sensitivity_AG={A_G}_AL={A_L}{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        price_file_mean = f"price_sensitivity_mean_AG={A_G}_AL={A_L}{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        price_file_std = f"price_sensitivity_std_AG={A_G}_AL={A_L}{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        production_file_mean = f"production_sensitivity_mean_AG={A_G}_AL={A_L}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        production_file_std = f"production_sensitivity_std_AG={A_G}_AL={A_L}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        load_file_mean = f"load_sensitivity_mean_AG={A_G}_AL={A_L}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        load_file_std = f"load_sensitivity_std_AG={A_G}_AL={A_L}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        prod_CR_file = f"prod_CR_sensitivity_AG={A_G}_AL={A_L}{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        load_CR_file = f"load_CR_sensitivity_AG={A_G}_AL={A_L}{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        boundary_file_price = f"no_contract_boundary_price_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        boundary_file_all_price = f"no_contract_boundary_all_price_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        boundary_file_production = f"no_contract_boundary_production_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        boundary_file_all_production = f"no_contract_boundary_all_production_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        negotiation_sensitivity_file = f"negotiation_sensitivity_AG={A_G}_AL={A_L}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        negotation_earnings_file = f"negotiation_earnings_AG={A_G}_AL={A_L}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        load_ratio_file = f"load_ratio_sensitivity_AG={A_G}_AL={A_L}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        #alpha_sensitivity_file = f"alpha_sensitivity_{contract_type}_{time_horizon}_{num_scenarios}.png"
+        #alpha_earnings_file = f"alpha_earnings_{contract_type}_{time_horizon}_{num_scenarios}.png"
+        earnings_boxplot_file = f"earnings_boxplot_AG={fixed_A_G}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        spider_file = f"parameter_sensitivity_spider_AG={A_G}_AL={A_L}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        tornado_file = f"elasticity_tornado_AG={fixed_A_G}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        risk_plot_3D_file = f"risk_3D_plot_AG_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        price_bias_3D_file = f"price_bias_3D_plot_AG_{contract_type}_{opt_time_horizon}_{num_scenarios}.png" 
+
+        nash_product_file = f"nash_product_evolution_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        utility_space_file = f"utility_space_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+        disagreement_points_file = f"disagreement_points_{opt_time_horizon}_{num_scenarios}.png"
 
     # Generate plots
     # Boxplot of earnings
@@ -337,11 +389,11 @@ def main():
     plotter._plot_no_contract_boundaries_all(sensitivity_type='price', filename=os.path.join(plots_folder, boundary_file_all_price))
     plotter._plot_no_contract_boundaries_all(sensitivity_type='price', filename=os.path.join(DROPBOX_DIR, boundary_file_all_price))
 
-    plotter._plot_no_contract_boundaries(sensitivity_type='production', filename=os.path.join(plots_folder, boundary_file_production))
-    plotter._plot_no_contract_boundaries(sensitivity_type='production',filename=os.path.join(DROPBOX_DIR, boundary_file_production))
-    plotter._plot_no_contract_boundaries_all(sensitivity_type='production', filename=os.path.join(plots_folder, boundary_file_all_production))
-    plotter._plot_no_contract_boundaries_all(sensitivity_type='production',filename=os.path.join(DROPBOX_DIR, boundary_file_all_production))
-    print("All plots generated successfully!")
+    #plotter._plot_no_contract_boundaries(sensitivity_type='production', filename=os.path.join(plots_folder, boundary_file_production))
+    #plotter._plot_no_contract_boundaries(sensitivity_type='production',filename=os.path.join(DROPBOX_DIR, boundary_file_production))
+    #plotter._plot_no_contract_boundaries_all(sensitivity_type='production', filename=os.path.join(plots_folder, boundary_file_all_production))
+    #plotter._plot_no_contract_boundaries_all(sensitivity_type='production',filename=os.path.join(DROPBOX_DIR, boundary_file_all_production))
+    #print("All plots generated successfully!")
 
     plotter._plot_nash_product_evolution(filename=os.path.join(plots_folder, nash_product_file))
     plotter._plot_nash_product_evolution(filename=os.path.join(DROPBOX_DIR, nash_product_file))

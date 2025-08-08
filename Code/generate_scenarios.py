@@ -39,13 +39,19 @@ def _save_matrix(folder: Path, kind: str, mat: np.ndarray, start: str | pd.Times
             df = df.resample("YE").mean()
         else:
             df = df.resample("YE").sum()
-        fname = f"{kind}_scenarios_{years//n_months}y_{sims}s.csv"
+        if monte_price == True:
+            fname = f"{kind}_scenarios_monte_{years//n_months}y_{sims}s.csv"
+        else:
+            fname = f"{kind}_scenarios_{years//n_months}y_{sims}s.csv"
     else:
         df = pd.DataFrame(mat, index=_yearly_index(start, years),
                       columns=pd.RangeIndex(sims, name="sim"))
         df = df.resample("YE").sum()
-        fname = f"{kind}_scenarios_{years}y_{sims}s.csv"
-        
+
+        if monte_price == True:
+            fname = f"{kind}_scenarios_monte_{years}y_{sims}s.csv"
+        else:
+            fname = f"{kind}_scenarios_{years}y_{sims}s.csv"
 
     df.to_csv(folder / fname, index_label="year")
 
@@ -466,7 +472,10 @@ def run_scenarios(
 
     # 1) price (OU or lognormal)
     #sampling_type = "OU_Process"  # or "Lognormal"
-    sampling_type = "OU_Process"  # or "Lognormal"
+    if monte_price == True:
+        sampling_type = "normal"
+    else:
+        sampling_type = "OU_Process"  # or "Lognormal"
     price_mdl = PriceModel.from_csv(sampling_type,  price_csv_path, seed)
     price_mat = price_mdl.simulate(sampling_type, years, num_scenarios)
     _save_matrix(out, "price", price_mat, start_time,resample=True)
@@ -495,7 +504,9 @@ def run_scenarios(
 if __name__ == "__main__":
     # Example usage
     years = 20  # 5 years
-    num_scenarios = 5000  # Reduced from 50000 for faster computation
+    num_scenarios = 2000  # Reduced from 50000 for faster computation
+    global monte_price
+    monte_price = True
 
     # Wind Profile 
     csv_wind = "Code/Data/Wind/combined_wind_data.csv"  # adjust path if needed
