@@ -817,11 +817,14 @@ class ContractNegotiation:
 
         self.results.utility_G = (1-self.data.A_G) * (self.data.PROB*(EuG + SMG)).sum() + self.data.A_G * self.results.CVaRG
         self.results.utility_L = (1-self.data.A_L) * (self.data.PROB*(EuL + SML)).sum() + self.data.A_L * self.results.CVaRL
-
-        print( self.results.utility_G)
-        print( self.results.utility_L)
-
         self.results.Nash_Product = ((self.results.utility_G - self.data.Zeta_G)) * (self.results.utility_L - self.data.Zeta_L)
+
+
+        #print( self.results.utility_G)
+        #print( self.results.utility_L)
+
+        #print(self.results.Nash_Product)
+
         # Save accumulated revenues
         self.results.earnings_G = EuG + SMG
         self.results.earnings_L = EuL + SML
@@ -835,7 +838,7 @@ class ContractNegotiation:
         if self.model.status == GRB.OPTIMAL:
             self._save_results()
             #self.scipy_optimization()
-            #self.display_results()
+            self.display_results()
             #self.scipy_display_results()
 
             if self.data.Barter == True:

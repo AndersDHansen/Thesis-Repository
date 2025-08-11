@@ -11,7 +11,8 @@ from sensitivity_analysis import (run_capture_price_analysis, run_no_contract_bo
                                   run_capture_rate_sensitivity_analysis, run_production_sensitivity_analysis, 
                                   run_no_contract_boundary_analysis_price, run_negotiation_power_sensitivity_analysis,
                                   run_load_scenario_sensitivity_analysis,run_load_capture_rate_sensitivity_analysis,
-                                  run_price_sensitivity_analysis ,run_load_generation_ratio_sensitivity_analysis)
+                                  run_price_sensitivity_analysis ,run_load_generation_ratio_sensitivity_analysis,
+                                  run_negotiation_power_vs_risk_sensitivity_analysis, run_elasticity_vs_risk_sensitivity_analysis)
 from contract_negotiation import ContractNegotiation
 from utils import ForecastProvider
 import copy
@@ -26,8 +27,16 @@ results_folder = os.path.join(os.path.dirname(__file__), 'Results')
 
 
 def run_contract_negotiation_sensitivity(input_data: InputData, 
-                           A_G_values: np.ndarray, A_L_values: np.ndarray, tau_L_values: np.ndarray, tau_G_values: np.ndarray) -> tuple:
-    """Run contract negotiation and sensitivity analysis with given OPF results."""
+                                                     A_G_values: np.ndarray, A_L_values: np.ndarray, tau_L_values: np.ndarray, tau_G_values: np.ndarray,
+                                                     selected_analyses: list | None = None) -> tuple:
+    """Run selected sensitivity analyses and return only those results.
+
+    If selected_analyses is None or empty and sensitivity is True, all standard analyses run.
+    Supported keys:
+        'capture_price','risk','price_bias','production_bias','price_mean','price_std',
+        'production_mean','production_std','load_mean','load_std','gen_capture_rate','load_capture_rate',
+    'boundary_price','boundary_production','negotiation','negotiation_vs_risk','elasticity_vs_risk','load_ratio'.
+    """
     
     # Store original data
     original_data = copy.deepcopy(input_data)
@@ -36,9 +45,6 @@ def run_contract_negotiation_sensitivity(input_data: InputData,
     base_input = copy.deepcopy(original_data)
    
 
-    new_base = base_input
-    new_base.K_G = 0.0  # Use middle value for A_G
-    new_base.K_L = 0.0  # Use middle value for A
 
     
     contract_model = ContractNegotiation(base_input)
@@ -48,111 +54,124 @@ def run_contract_negotiation_sensitivity(input_data: InputData,
     
     print(2*"\nRunning contract negotiation...")
 
-    # Run Fixed Strike price of capture price G 
-    capture_price_input = copy.deepcopy(original_data)
-    CP_sensitivity_results, CP_earnings_sensitivity = run_capture_price_analysis(capture_price_input)
+    # Determine which analyses to run
+    run_all = selected_analyses is None or len(selected_analyses) == 0
+    def sel(key: str) -> bool:
+        return run_all or (key in selected_analyses)
 
+    results = {}
+
+    if sel('capture_price'):
+        capture_price_input = copy.deepcopy(original_data)
+        CP_sensitivity_results, CP_earnings_sensitivity = run_capture_price_analysis(capture_price_input)
+        results["capture_price_results"] = CP_sensitivity_results
+        results["capture_price_earnings_sensitivity"] = CP_earnings_sensitivity
+
+    if sel('risk'):
+        risk_input = copy.deepcopy(original_data)
+        risk_sensitivity_results, earnings_sensitivity = run_risk_sensitivity_analysis(risk_input, A_G_values, A_L_values)
+        results["risk_sensitivity"] = risk_sensitivity_results
+        results["risk_earnings_sensitivity"] = earnings_sensitivity
+
+    if sel('price_bias'):
+        price_bias_input = copy.deepcopy(original_data)
+        price_bias_sensitivity_results = run_price_bias_sensitivity_analysis(price_bias_input)
+        results["price_bias_sensitivity"] = price_bias_sensitivity_results
+
+    if sel('production_bias'):
+        production_bias_input = copy.deepcopy(original_data)
+        production_bias_sensitivity_results = run_production_bias_sensitivity_analysis(production_bias_input)
+        results['production_bias_sensitivity'] = production_bias_sensitivity_results
+    """ 
+    if sel('price_mean'):
+        price_input_mean = copy.deepcopy(original_data)
+        price_sensitivity_results_mean = run_price_sensitivity_analysis(price_input_mean, sensitivity_type="mean")
+        results['price_sensitivity_mean'] = price_sensitivity_results_mean
+
+    if sel('price_std'):
+        price_input_std = copy.deepcopy(original_data)
+        price_sensitivity_results_std = run_price_sensitivity_analysis(price_input_std, sensitivity_type="std")
+        results['price_sensitivity_std'] = price_sensitivity_results_std
+
+    if sel('load_mean'):
+        load_scenario_input_mean = copy.deepcopy(original_data)
+        load_scenario_sensitivity_results_mean = run_load_scenario_sensitivity_analysis(load_scenario_input_mean,  sensitivity_type="mean")
+        results['load_sensitivity_mean'] = load_scenario_sensitivity_results_mean
+
+    if sel('load_std'):
+        load_scenario_input_std = copy.deepcopy(original_data)
+        load_scenario_sensitivity_results_std = run_load_scenario_sensitivity_analysis(load_scenario_input_std,  sensitivity_type="std")
+        results['load_sensitivity_std'] = load_scenario_sensitivity_results_std
+
+    if sel('gen_capture_rate'):
+        capture_rate_input = copy.deepcopy(original_data)
+        capture_rate_sensitivity_results = run_capture_rate_sensitivity_analysis(capture_rate_input)
+        results['gen_capture_rate_sensitivity'] = capture_rate_sensitivity_results
+
+    if sel('load_capture_rate'):
+        load_capture_rate_input = copy.deepcopy(original_data)
+        load_capture_rate_sensitivity_results = run_load_capture_rate_sensitivity_analysis(load_capture_rate_input)
+        results['load_capture_rate_sensitivity'] = load_capture_rate_sensitivity_results
+
+    if sel('production_mean'):
+        production_input_mean = copy.deepcopy(original_data)
+        production_sensitivity_results_mean = run_production_sensitivity_analysis(production_input_mean, sensitivity_type="mean")
+        results['production_sensitivity_mean'] = production_sensitivity_results_mean
+  
+    if sel('production_std'):
+        production_input_std = copy.deepcopy(original_data)
+        production_sensitivity_results_std = run_production_sensitivity_analysis(production_input_std, sensitivity_type="std")
+        results['production_sensitivity_std'] = production_sensitivity_results_std
     
-    # Run Sensitivity Analyses with fresh copies
-    risk_input = copy.deepcopy(original_data)
-    risk_sensitivity_results, earnings_sensitivity = run_risk_sensitivity_analysis(risk_input, A_G_values, A_L_values)
+    if sel('boundary_production'):
+        boundary_data_input_production = copy.deepcopy(original_data)
+        boundary_results_df_production = run_no_contract_boundary_analysis_production(boundary_data_input_production)
+        results['boundary_results_production'] = boundary_results_df_production
+      """
     
-    # Run Price Bias sensitivity analysis with a fresh copy (0)
-    price_bias_input = copy.deepcopy(original_data)
-    price_bias_sensitivity_results = run_price_bias_sensitivity_analysis(price_bias_input)
-
-    #Run Production Bias sensitivity analysis with a fresh copy (0)
-    production_bias_input = copy.deepcopy(original_data)
-    production_bias_sensitivity_results = run_production_bias_sensitivity_analysis(production_bias_input)
-
-    # Run mean price sensitivity analysis with a fresh copy (1)
-    price_input_mean = copy.deepcopy(original_data)
-    price_sensitivity_results_mean = run_price_sensitivity_analysis(price_input_mean, sensitivity_type="mean")
-
-    # Run standard deviation price sensitivity analysis with a fresh copy (1)
-    price_input_std = copy.deepcopy(original_data)
-    price_sensitivity_results_std = run_price_sensitivity_analysis(price_input_std, sensitivity_type="std")
-
-    # Run mean load scenario sensitivity analysis with a fresh copy (2)
-    load_scenario_input_mean = copy.deepcopy(original_data)
-    load_scenario_sensitivity_results_mean = run_load_scenario_sensitivity_analysis(load_scenario_input_mean,  sensitivity_type="mean")
-
-    # Run  standard deviation scenario sensitivity analysis with a fresh copy (2)
-    load_scenario_input_std = copy.deepcopy(original_data)
-    load_scenario_sensitivity_results_std = run_load_scenario_sensitivity_analysis(load_scenario_input_std,  sensitivity_type="std")
-
-    # Run capture rate sensitivity analysis with a fresh copy (3)
-    capture_rate_input = copy.deepcopy(original_data)
-    capture_rate_sensitivity_results = run_capture_rate_sensitivity_analysis(capture_rate_input)
-
-    # Run load capture rate sensitivity analysis with a fresh copy (4)
-    load_capture_rate_input = copy.deepcopy(original_data)
-    load_capture_rate_sensitivity_results = run_load_capture_rate_sensitivity_analysis(load_capture_rate_input)
-
-    # Run mean production sensitivity analysis with a fresh copy (5)
-    production_input_mean = copy.deepcopy(original_data)
-    production_sensitivity_results_mean = run_production_sensitivity_analysis(production_input_mean, sensitivity_type="mean")
-
-    # Run standard deviation production sensitivity analysis with a fresh copy (5)
-    production_input_std = copy.deepcopy(original_data)
-    production_sensitivity_results_std = run_production_sensitivity_analysis(production_input_std, sensitivity_type="std")
-
-    # Run Boundary analysis with a fresh copy 
-    if boundary == True:
+    if sel('boundary_price'):
         boundary_data_input_price = copy.deepcopy(original_data)
         boundary_results_df_price = run_no_contract_boundary_analysis_price(boundary_data_input_price)
+        results['boundary_results_price'] = boundary_results_df_price
+   
+    if sel('negotiation'):
+        tau_input = copy.deepcopy(original_data)
+        tau_sensitivity_results, tau_earnings_sensitivity = run_negotiation_power_sensitivity_analysis(
+            tau_input, 
+            tau_G_values, 
+            tau_L_values
+        )
+        results['negotiation_power_sensitivity'] = tau_sensitivity_results
+        results['negotiation_earnings_sensitivity'] = tau_earnings_sensitivity
+   
+    # New: negotiation power vs multiple risk-aversion pairs
+    if sel('negotiation_vs_risk'):
+        nv_input = copy.deepcopy(original_data)
+        sel_A_L_values = [0.0, 0.5, 0.9]  # Example values for A_L
+        sel_A_G_values = [0.1, 0.5, 0.9]  # Example values for A_G
+        negotiation_vs_risk_df = run_negotiation_power_vs_risk_sensitivity_analysis(
+            nv_input,
+            A_G_values=sel_A_G_values,
+            A_L_values=sel_A_L_values,
+            tau_L_values=tau_L_values,
+        )
+        results['negotiation_vs_risk_sensitivity'] = negotiation_vs_risk_df
 
-        # Production boundary analysis
-        boundary_data_input_production = copy.deepcopy(original_data)
-        #boundary_results_df_production = run_no_contract_boundary_analysis_production(boundary_data_input_production)
-        boundary_results_df_production = pd.DataFrame()
+    if sel('load_ratio'):
+        load_generation_ratio_input = copy.deepcopy(original_data)
+        load_generation_ratio_sensitivity_results = run_load_generation_ratio_sensitivity_analysis(load_generation_ratio_input)
+        results['load_ratio_sensitivity'] = load_generation_ratio_sensitivity_results
 
-    else:
-        boundary_results_df_price = pd.DataFrame()
-        boundary_results_df_production = pd.DataFrame()
-
-    # Run sensitivity analysis with different negotations powers
-    tau_input = copy.deepcopy(original_data)
-    tau_sensitivity_results, tau_earnings_sensitivity = run_negotiation_power_sensitivity_analysis(
-        tau_input, 
-        tau_G_values, 
-        tau_L_values
-    )
-
-    # Sensitivity analysis for Load / Generation ratio
-    load_generation_ratio_input = copy.deepcopy(original_data)
-    #load_generation_ratio_sensitivity_results = run_load_generation_ratio_sensitivity_analysis(load_generation_ratio_input)
-    load_generation_ratio_sensitivity_results = pd.DataFrame()  # Result is empty for load generation ratio sensitivity analysis so we create an empty DataFrame
-
-
-
-    #alpha_input = copy.deepcopy(original_data)
-    #alpha_sensitivity_results,alpha_earnings_sensitivity = run_cvar_alpha_sensitivity_analysis(alpha_input    )
-
-
-
-     # Prepare results as a dictionary
-    results = {
-        "capture_price_results": CP_sensitivity_results,
-        "capture_price_earnings_sensitivity": CP_earnings_sensitivity,
-        "risk_sensitivity": risk_sensitivity_results,
-        "risk_earnings_sensitivity": earnings_sensitivity,
-        "price_bias_sensitivity": price_bias_sensitivity_results,
-        'price_sensitivity_mean': price_sensitivity_results_mean,
-        'price_sensitivity_std': price_sensitivity_results_std,
-        'production_bias_sensitivity': production_bias_sensitivity_results,
-        "production_sensitivity_mean": production_sensitivity_results_mean,
-        "production_sensitivity_std": production_sensitivity_results_std,
-        "load_sensitivity_mean": load_scenario_sensitivity_results_mean,
-        "load_sensitivity_std": load_scenario_sensitivity_results_std,
-        "gen_capture_rate_sensitivity": capture_rate_sensitivity_results,
-        "load_capture_rate_sensitivity": load_capture_rate_sensitivity_results,
-        "boundary_results_price": boundary_results_df_price,
-        "boundary_results_production": boundary_results_df_production,
-        "negotiation_power_sensitivity": tau_sensitivity_results,
-        "negotiation_earnings_sensitivity": tau_earnings_sensitivity,
-        "load_ratio_sensitivity": load_generation_ratio_sensitivity_results,
-    }
+    if sel('elasticity_vs_risk'):
+        evr_input = copy.deepcopy(original_data)
+        sel_A_L_values = [0.1, 0.5, 0.9]  # Example values for A_L
+        sel_A_G_values = [0.1, 0.5, 0.9]  # Example values for A_G
+        evr_df = run_elasticity_vs_risk_sensitivity_analysis(
+            evr_input,
+            A_G_values=sel_A_G_values,
+            A_L_values=sel_A_L_values,
+        )
+        results['elasticity_vs_risk_sensitivity'] = evr_df
 
     return contract_model , results
 
@@ -165,7 +184,12 @@ def run_contract_negotiation(input_data: InputData):
         base_input = copy.deepcopy(original_data)
 
         start_time = timeit.default_timer()
-        contract_model = ContractNegotiation(base_input)
+
+        new_base = base_input
+        new_base.K_G_price = 0  # Use middle value for A_G
+        new_base.K_L_price = 0  # Use middle value for A_L
+
+        contract_model = ContractNegotiation(new_base)
         contract_model.run()
         end_time = timeit.default_timer()
         print(f"Contract negotiation completed in {end_time - start_time:.2f} seconds.")
@@ -182,81 +206,52 @@ def save_results_to_csv(results_dict, contract_type,time_horizon, num_scenarios)
     # Create folders if they don't exist
     os.makedirs(results_folder, exist_ok=True)
     
-    # Save each dataframe in the results tuple
-    result_names_not_risk = [
-         
-        "capture_price_results", "capture_price_earnings_sensitivity",  # Capture price results
-        "price_bias_sensitivity","production_bias_sensitivity",  # Price and production bias sensitivity results
-        "price_sensitivity_mean","price_sensitivity_std",   # Bias is difference between G and L in what they think price will be, price sensitivity it is uniform between
-        "production_sensitivity_mean", "production_sensitivity_std",  # Production sensitivity
-        "load_sensitivity_mean", "load_sensitivity_std",  # Load sensitivity
-        "gen_capture_rate_sensitivity", "load_capture_rate_sensitivity",
-        "negotiation_power_sensitivity", "negotiation_earnings_sensitivity", "load_ratio_sensitivity" # tau results are negotation results
-        ]
-    
-    result_names_risk = ["risk_sensitivity", "risk_earnings_sensitivity",'boundary_results_price', 'boundary_results_production']
-    
-    for i, result_name in enumerate(result_names_not_risk):
-        if monte_price == True:
-            base_filename = f"monte_{result_name}_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}y_{num_scenarios}"
-        else:
-            base_filename = f"{result_name}_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}y_{num_scenarios}"
-        
-        data = results_dict[result_name]
-        # Skip if the data is not a DataFrame
-        if isinstance(data, pd.DataFrame): 
-            csv_path = os.path.join(results_folder, f"{base_filename}.csv")
-            data.to_csv(csv_path)
-            print(f"Saved {result_name} to CSV file")
-        else:
-            print(f"Skipping {result_name}: not a DataFrame")
+    # Save dynamically only what was produced
+    risk_like_keys = {'negotiation_vs_risk_sensitivity', 'elasticity_vs_risk_sensitivity',"risk_sensitivity","risk_earnings_sensitivity","boundary_price"}
 
-    
-    for i, result_name in enumerate(result_names_risk):
-        if monte_price == True:
-            base_filename =  f"monte_{result_name}_{contract_type}_{time_horizon}y_{num_scenarios}"
+    for result_name, data in results_dict.items():
+        # Build base filename
+        if result_name in risk_like_keys:
+            base_filename =  f"monte_{result_name}_{contract_type}_{time_horizon}y_{num_scenarios}" if monte_price else f"{result_name}_{contract_type}_{time_horizon}y_{num_scenarios}"
         else:
-            base_filename = f"{result_name}_{contract_type}_{time_horizon}y_{num_scenarios}"
-        
-        # Handle boundary_results specially since it's a list of dictionaries
-        data = results_dict[result_name]
-        if result_name == ("boundary_results_price" or "boundary_results_production") and boundary == True:
+            base_filename =  f"monte_{result_name}_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}y_{num_scenarios}" if monte_price else f"{result_name}_AG={A_G}_AL={A_L}_{contract_type}_{time_horizon}y_{num_scenarios}"
+
+        # Boundary results -> JSON
+        if result_name in ("boundary_results_price", "boundary_results_production") and isinstance(data, (list, tuple)):
             json_path = os.path.join(results_folder, f"{base_filename}.json")
-
-            # Save as JSON file
-                # Convert numpy arrays to lists for JSON serialization
-       # Convert numpy arrays to lists for JSON serialization
             save_data = []
             for item in data:
-                # For each scenario in the boundary results
                 item_copy = item.copy()
                 if 'boundary_points' in item_copy:
                     item_copy['boundary_points'] = [list(point) for point in item_copy['boundary_points']]
-                
-                # Convert contract_grid to list if present
                 if 'contract_grid' in item_copy:
-                    item_copy['contract_grid'] = item_copy['contract_grid'].tolist()
-                
-                # Convert numpy arrays in KL_range and KG_range
+                    item_copy['contract_grid'] = np.array(item_copy['contract_grid']).tolist()
+                if 'feas_mask' in item_copy:
+                    item_copy['feas_mask'] = np.array(item_copy['feas_mask']).tolist()
+                if 'pos_contract_mask' in item_copy:
+                    item_copy['pos_contract_mask'] = np.array(item_copy['pos_contract_mask']).tolist()
+                if 'KL_grid' in item_copy:
+                    item_copy['KL_grid'] = np.array(item_copy['KL_grid']).tolist()
+                if 'KG_grid' in item_copy:
+                    item_copy['KG_grid'] = np.array(item_copy['KG_grid']).tolist()
                 if 'KL_range' in item_copy:
-                    item_copy['KL_range'] = item_copy['KL_range'].tolist()
+                    item_copy['KL_range'] = np.array(item_copy['KL_range']).tolist()
                 if 'KG_range' in item_copy:
-                    item_copy['KG_range'] = item_copy['KG_range'].tolist()
-                
+                    item_copy['KG_range'] = np.array(item_copy['KG_range']).tolist()
                 save_data.append(item_copy)
-            
             with open(json_path, 'w') as f:
                 json.dump(save_data, f)
             print(f"Saved {result_name} to JSON file")
-    
-        
-        # Skip if the data is not a DataFrame
-        if isinstance(data, pd.DataFrame): 
+            continue
+
+        # DataFrames -> CSV
+        if isinstance(data, pd.DataFrame):
             csv_path = os.path.join(results_folder, f"{base_filename}.csv")
             data.to_csv(csv_path)
             print(f"Saved {result_name} to CSV file")
         else:
-            print(f"Skipping {result_name}: not a DataFrame")
+            # Skip non-DF, non-boundary entries
+            pass
 
  
 def main():      # Define simulation parameters
@@ -265,21 +260,24 @@ def main():      # Define simulation parameters
     A_L = 0.5  # Initial risk aversion
     A_G = 0.5  # Initial risk aversion
     scenario_time_horizon = 20  # Must match the scenarios that were generated
-    opt_time_horizon = 5  # Time horizon for optimization (in years)
-    num_scenarios = 2000  # Must match the scenarios that were generated
+    opt_time_horizon = 20  # Time horizon for optimization (in years)
+    num_scenarios = 500  # Must match the scenarios that were generated
 
 
     # Monte carlo price scenarios 
-    monte_price = True
-
+    monte_price = False
     tau_L = 0.5  # Asymmetry of power between load generator [0,1]
     tau_G = 1-tau_L  # Asymmetry of power between generation provider [0,1] - 1-tau_L
-    Barter = False  # Whether to relax the problem (Mc Cormick's relaxation)
+    Barter = True  # Whether to relax the problem (Mc Cormick's relaxation)
     contract_type = "Baseload" # Either "Baseload" or "PAP"
-    sensitivity = True  # Whether to run sensitivity analysis
+    sensitivity = False  # Whether to run sensitivity analyses at all
+    # Choose which analyses to run; leave empty to run all when sensitivity=True
+    #selected_analyses: list[str] = ["capture_price", "negotiation_vs_risk","risk","price_bias","production_bias",]
+    selected_analyses: list[str] = ["risk"]
+
     num_sensitivity = 5 # Number of sensitivity analysis points for tau_L and tau_G ( and A_G and A_L)  
     # Boundary analysis only on 20 years
-    boundary = False  # Whether to run boundary analysis ( it takes awhile to run, so set to False for quick tests)
+    boundary = False  # Deprecated flag (use selected_analyses to include boundary_* if desired)
     print("Loading data and preparing for simulation...")
     input_data = load_data(
         opt_time_horizon=opt_time_horizon,
@@ -362,7 +360,8 @@ def main():      # Define simulation parameters
             params['A_G_values'],
             params['A_L_values'],
             params['tau_L'],
-            params['tau_G']
+            params['tau_G'],
+            selected_analyses=selected_analyses
         )
         save_results_to_csv(results, contract_type,opt_time_horizon, num_scenarios)
     else:

@@ -5,6 +5,7 @@ from scipy.stats import linregress
 from utils import calculate_cvar_left, _left_tail_mask, _left_tail_weighted_sum
 from scipy.interpolate import interp1d
 import copy
+from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes, mark_inset
 
 
 class Barter_Set:
@@ -514,11 +515,11 @@ class Barter_Set:
 
         # Calculate the utility for each contract revenue
         for i in range(len(M_space)):            #Curve 1 
-            V_1_Low[i,0] = self.Utility_G(self.BS_strike_min, M_space[i]) 
-            V_1_Low[i,1] = self.Utility_L(self.BS_strike_min, M_space[i])
+            V_1_Low[i,0] = self.Utility_G(self.BS_strike_min, M_space[i]) - self.data.Zeta_G
+            V_1_Low[i,1] = self.Utility_L(self.BS_strike_min, M_space[i]) - self.data.Zeta_L
             #Curve 2
-            V_2_High[i,0] = self.Utility_G(self.BS_strike_max , M_space[i]) 
-            V_2_High[i,1] = self.Utility_L(self.BS_strike_max , M_space[i])
+            V_2_High[i,0] = self.Utility_G(self.BS_strike_max , M_space[i]) - self.data.Zeta_G
+            V_2_High[i,1] = self.Utility_L(self.BS_strike_max , M_space[i]) - self.data.Zeta_L
 
 
         #nash_product_test = (test[:,0]-self.data.Zeta_G)*(test[:,1]-self.data.Zeta_L)
@@ -535,11 +536,26 @@ class Barter_Set:
         #self.plot_utility_contours()
         
         #Calculate Utlity for the optimal contract amount        
-        UG_Low_Mopt = self.Utility_G(self.BS_strike_min, M_SR)
-        UL_Low_Mopt = self.Utility_L(self.BS_strike_min, M_SR)
-        UG_High_Mopt = self.Utility_G(self.BS_strike_max, M_SU)
-        UL_High_Mopt = self.Utility_L(self.BS_strike_max, M_SU)
-        
+        UG_Low_Mopt = self.Utility_G(self.BS_strike_min, M_SR) - self.data.Zeta_G
+        UL_Low_Mopt = self.Utility_L(self.BS_strike_min, M_SR) - self.data.Zeta_L
+        UG_High_Mopt = self.Utility_G(self.BS_strike_max, M_SU) - self.data.Zeta_G
+        UL_High_Mopt = self.Utility_L(self.BS_strike_max, M_SU) - self.data.Zeta_L
+
+        #Calculate negotiation power 
+        n_tau = 5
+        tau_L_values = np.linspace(0,1,n_tau)  # Asymmetry of power between load generator [0,1]
+        tau_G_values = np.ones(n_tau)- np.linspace(0,1,n_tau)
+
+        uG_tau = np.zeros(n_tau)
+        uL_tau = np.zeros(n_tau)
+
+        #Calculate utility for UG 
+
+
+        # Disagreement point if normalized
+        global disagreement_point
+        disagreement_point = [0, 0] # Normalized
+        #disagreement_point = [self.data.Zeta_G, self.data.Zeta_L] # Original
 
         # Keeping SR constant and plotting through MR to MU (Curve 1)
         plt.figure(figsize=(10, 6))
@@ -583,7 +599,7 @@ class Barter_Set:
             # Plot Optimal Contract Amount Point with fixed price SR and SU
             MSR_point = [UG_Low_Mopt, UL_Low_Mopt]
             MSU_point = [UG_High_Mopt, UL_High_Mopt]
-            utility = [self.results.utility_G, self.results.utility_L]
+            utility = [self.results.utility_G - self.data.Zeta_G, self.results.utility_L - self.data.Zeta_L]
             if self.data.contract_type == "PAP":
                 plt.scatter(UG_Low_Mopt, UL_Low_Mopt, color='green', marker='o', s=100,    label=fr'V1 $\gamma$ = {100*M_SR:.2f}%, M* = ({self.data.generator_contract_capacity * M_SR:.2f} MW)')
                 plt.scatter(UG_High_Mopt, UL_High_Mopt, color='green', marker='*', s=150,     label=fr'V1 $\gamma$ = {100*M_SU:.2f}%, M* = ({self.data.generator_contract_capacity * M_SU:.2f} MW)')
@@ -595,18 +611,21 @@ class Barter_Set:
 
 
             self.plot_barter_curve( MSR_point, MSU_point, utility)
-
-          
-            plt.scatter(self.results.utility_G, self.results.utility_L, color='red', marker='o', s=100, label='Optimization Result (G,L)')
+            plt.scatter(self.results.utility_G-self.data.Zeta_G, self.results.utility_L-self.data.Zeta_L, color='red', marker='o', s=100, label='Optimization Result (G,L)')
 
 
-        plt.axvline(x=self.data.Zeta_G, color='black', linestyle='--', alpha=0.3)
-        plt.axhline(y=self.data.Zeta_L, color='black', linestyle='--', alpha=0.3)
+
+        plt.axvline(x=disagreement_point[0], color='black', linestyle='--', alpha=0.3)
+        plt.axhline(y=disagreement_point[1], color='black', linestyle='--', alpha=0.3)
         # Original threat point plotting
-        plt.scatter(self.data.Zeta_G, self.data.Zeta_L, color='black', marker='o', s=100, label='Disagreement point')
+        plt.scatter(disagreement_point[0], disagreement_point[1], color='black', marker='o', s=100, label='Disagreement point')
 
-        plt.xlabel('Utility G')
-        plt.ylabel('Utility L')
+        
+       
+        #plt.xlim()
+
+        plt.xlabel('Utility G - Zeta_G')
+        plt.ylabel('Utility L - Zeta_L')
 
         #plt.title(f'Barter Set Type: {self.data.contract_type} A_G={self.data.A_G:.2f}, A_L={self.data.A_L:.2f}, K_G={self.data.K_G_lambda_Sigma:.2f}, K_L={self.data.K_L_lambda_Sigma:.2f}')
         plt.title(f'Barter Set: {self.data.contract_type} A_G={self.data.A_G:.2f}, A_L={self.data.A_L:.2f}')
@@ -738,17 +757,17 @@ class Barter_Set:
             
             slope_opt = np.round((MU_point[1] - MR_point[1]) / (MU_point[0] - MR_point[0]),8)
             b_opt = MR_point[1] - slope_opt * MR_point[0]
-            vertical_intersect_y = slope_opt * self.data.Zeta_G + b_opt
-            
+            vertical_intersect_y = slope_opt * disagreement_point[0] + b_opt
+
             # Horizontal line intersection (y = threat_point_y)
-            horizontal_intersect_x = (self.data.Zeta_L - b_opt) / slope_opt
+            horizontal_intersect_x = (0- b_opt) / slope_opt
 
               # Create barter set region polygon
             vertices = np.array([
-            [self.data.Zeta_G, self.data.Zeta_L],        # Start at threat point
-            [self.data.Zeta_G, vertical_intersect_y],  # Vertical intersection
-            [horizontal_intersect_x, self.data.Zeta_L], # Horizontal intersection
-            [self.data.Zeta_G, self.data.Zeta_L]         # Back to start
+            [disagreement_point[0], disagreement_point[1]],        # Start at threat point
+            [disagreement_point[0], vertical_intersect_y],  # Vertical intersection
+            [horizontal_intersect_x, disagreement_point[1]], # Horizontal intersection
+            [disagreement_point[0], disagreement_point[1]]         # Back to start
             ])
     
         else:
@@ -779,35 +798,70 @@ class Barter_Set:
             from scipy.optimize import minimize_scalar
 
             def vertical_error(t):
-                return abs(f_x(t) - self.data.Zeta_G)
+                return abs(f_x(t) - disagreement_point[0])
             t_vertical = minimize_scalar(vertical_error, bounds=(0, 1), method='bounded').x
             vertical_intersect_y = f_y(t_vertical)
 
             def horizontal_error(t):
-                return abs(f_y(t) - self.data.Zeta_L)
+                return abs(f_y(t) - disagreement_point[1])
             t_horizontal = minimize_scalar(horizontal_error, bounds=(0, 1), method='bounded').x
             horizontal_intersect_x = f_x(t_horizontal)
 
              # Create barter set region polygon
             vertices = np.array([
-            [self.data.Zeta_G, self.data.Zeta_L],        # Start at threat point
-            [self.data.Zeta_G, vertical_intersect_y],  # Vertical intersection
-            [self.results.utility_G,self.results.utility_L], # Optimization result point
-            [horizontal_intersect_x, self.data.Zeta_L], # Horizontal intersection
-            [self.data.Zeta_G, self.data.Zeta_L]         # Back to start
+            [disagreement_point[0], disagreement_point[1]],        # Start at threat point
+            [disagreement_point[0], vertical_intersect_y],  # Vertical intersection
+            [self.results.utility_G - self.data.Zeta_G,self.results.utility_L - self.data.Zeta_L], # Optimization result point
+            [horizontal_intersect_x, disagreement_point[1]], # Horizontal intersection
+            [disagreement_point[0], disagreement_point[1]]         # Back to start
             ])
 
             
          # Plot intersection points
-        plt.scatter(self.data.Zeta_G, vertical_intersect_y, 
+        plt.scatter(disagreement_point[0], vertical_intersect_y, 
                 color='purple', marker='x', s=100)
-        plt.scatter(horizontal_intersect_x, self.data.Zeta_L, 
+        plt.scatter(horizontal_intersect_x, disagreement_point[1], 
                 color='purple', marker='x', s=100)
         
         # Create and add the polygon
         polygon = plt.Polygon(vertices, facecolor='gray', 
                             label="Barter Set Region", alpha=0.2, edgecolor=None)
         plt.gca().add_patch(polygon)
+
+         # Improve axis tick intervals
+        ax = plt.gca()
+
+        def _focus_axes_on_points(ax, xs, ys, pad_frac=0.10, min_pad=10):
+            xs = np.asarray(xs, dtype=float)
+            ys = np.asarray(ys, dtype=float)
+            xmin, xmax = np.nanmin(xs), np.nanmax(xs)
+            ymin, ymax = np.nanmin(ys), np.nanmax(ys)
+            wx = max(xmax - xmin, 1.0)
+            wy = max(ymax - ymin, 1.0)
+            pad_x = max(pad_frac * wx, min_pad)
+            pad_y = max(pad_frac * wy, min_pad)
+            ax.set_xlim(xmin - pad_x, xmax + pad_x)
+            ax.set_ylim(ymin - pad_y, ymax + pad_y)
+
+        x_pts = [
+        disagreement_point[0],                 # threat x
+        horizontal_intersect_x,           # x at y=Zeta_L
+        disagreement_point[0],                 # x at vertical intersection
+        MR_point[0], MU_point[0],         # green points (concave ends)
+        utility_opt[0],                   # red dot (Nash solution)
+            ]
+        y_pts = [
+            disagreement_point[1],                 # threat y
+            disagreement_point[1],                 # y at horizontal intersection
+            vertical_intersect_y,             # y at x=Zeta_G
+            MR_point[1], MU_point[1],         # green points
+            utility_opt[1],                   # red dot
+                ]
+
+        _focus_axes_on_points(ax, x_pts, y_pts, pad_frac=0.12, min_pad=5)
+
+        
+
     
     def plot_utility_cvar_vs_M(self, strike_price='min'):
         """
@@ -1045,7 +1099,7 @@ class Barter_Set:
 
         plt.xlabel('Utility G - Zeta_G', fontsize=14)
         plt.ylabel('Utility L - Zeta_L', fontsize=14)
-        plt.title(f'{self.data.contract_type} Normalized Barter Sets for Different Risk Aversion Pairs', fontsize=16)
+        plt.title(f'{self.data.contract_type} Barter Sets for Different Risk Aversion Pairs', fontsize=16)
         plt.legend(fontsize=12, loc='center left', bbox_to_anchor=(1, 0.5))
         plt.grid(True, linestyle='--', alpha=0.7)
         plt.legend()

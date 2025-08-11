@@ -8,8 +8,9 @@ import pandas as pd
 import os
 from utils import calculate_cvar_left, weighted_expected_value
 from sklearn.linear_model import LinearRegression
-from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.colors import LinearSegmentedColormap, to_rgb
 import matplotlib.patches as mpatches
+import matplotlib.ticker as mtick
 
 cmap_red_green=LinearSegmentedColormap.from_list('rg',["r", "w", "g"], N=256) 
 # Create a custom colormap that transitions from white to very light gray
@@ -54,14 +55,199 @@ class Plotting_Class:
         self.load_ratio_df = load_ratio_df
         # plotting styless
         self.legendsize = 12
-        self.labelsize = 14
-        self.titlesize = 16
-        self.suptitlesize = 18
+        self.labelsize = 16
+        self.titlesize = 17
+        self.suptitlesize = 19
         #self.alpha_sensitivity_df = alpha_sensitivity_df
         #self.alpha_earnings_df = alpha_earnings_df
 
         self.plots_dir = os.path.join(os.path.dirname(__file__), 'Plots')
         os.makedirs(self.plots_dir, exist_ok=True)
+
+    def _safe_local_elasticity_single(self, df_in: pd.DataFrame, factor_col: str, metric_col: str, baseline: float) -> float | None:
+        """Single-metric local elasticity with central difference or local linear fit. Returns float or None/NaN.
+        E = (dY/dX) * (X0 / Y0), never fills NaN with zeros.
+        """
+        if df_in is None or df_in.empty:
+            return np.nan
+        cols = [factor_col, metric_col]
+        if any(c not in df_in.columns for c in cols):
+            return np.nan
+        df = df_in[cols].copy()
+        df = df[np.isfinite(df[factor_col]) & np.isfinite(df[metric_col])]
+        if df.empty:
+            return np.nan
+        df = df.sort_values(factor_col)
+        # Round to 5 decimals to remove floating noise
+        x = df[factor_col].astype(float).round(5).values
+        y = df[metric_col].astype(float).round(5).values
+        # Find neighbors around baseline
+        left = np.where(x < baseline)[0]
+        right = np.where(x > baseline)[0]
+        y0 = np.nan
+        slope = np.nan
+        eq = np.where(np.isclose(x, baseline))[0]
+        if eq.size > 0:
+            y0 = y[eq[0]]
+        if left.size > 0 and right.size > 0:
+            iL = left[-1]
+            iR = right[0]
+            xL, yL = x[iL], y[iL]
+            xR, yR = x[iR], y[iR]
+            if xR != xL:
+                slope = (yR - yL) / (xR - xL)
+                if not np.isfinite(y0):
+                    y0 = yL + (baseline - xL) * slope
+        if not np.isfinite(slope):
+            if x.size >= 2 and np.unique(x).size >= 2:
+                k = min(5, x.size)
+                order = np.argsort(np.abs(x - baseline))[:k]
+                coeffs = np.polyfit(x[order], y[order], deg=1)
+                slope = coeffs[0]
+                y0 = np.polyval(coeffs, baseline)
+        if not np.isfinite(slope) or not np.isfinite(y0) or np.isclose(y0, 0.0):
+            return np.nan
+        return float(slope * (baseline / y0))
+
+    def _color_for_risk(self, value: float, kind: str = 'A_L'):
+        """Return a consistent color for a given risk value (A_L or A_G),
+        aligned with the Set2 palette used elsewhere.
+        We snap to a canonical set of values for stable colors across plots.
+        """
+        try:
+            v = round(float(value), 2)
+        except Exception:
+            v = value
+        canonical = [0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0]
+        base_pal = sns.color_palette('Set2', n_colors=len(canonical))
+        # Slightly darken to avoid too-light tones
+        pal = [tuple(min(1.0, max(0.0, c*0.85)) for c in rgb) for rgb in base_pal]
+        if v in canonical:
+            idx = canonical.index(v)
+        else:
+            # Nearest bucket for unseen value
+            idx = np.searchsorted(canonical, v)
+            idx = max(0, min(idx, len(canonical)-1))
+        return pal[idx]
+
+    def _plot_negotiation_vs_risk(self, df, metric='StrikePrice', filename=None):
+        """
+        Plot metric vs tau_L for multiple (A_G, A_L) pairs.
+
+        - Color encodes the (A_G, A_L) pair using a palette.
+        - Lines are drawn across tau_L; optional secondary axis for Gamma if PAP and metric is ContractAmount.
+        """
+        if df is None or df.empty:
+            print("No data provided for negotiation vs risk plot.")
+            return
+
+        # Prepare data
+        plot_df = df.copy()
+        if 'tau_L' not in plot_df.columns:
+            print("Dataframe missing tau_L; cannot plot.")
+            return
+        # Round contract amount to 4 decimals for readability
+        if 'ContractAmount' in plot_df.columns:
+            try:
+                plot_df['ContractAmount'] = plot_df['ContractAmount'].astype(float).round(4)
+            except Exception:
+                pass
+
+        # Unique pairs and grouped color mapping: similar colors per A_G, distinct per A_L
+        pairs = plot_df[['A_G', 'A_L']].drop_duplicates().sort_values(['A_G', 'A_L']).values.tolist()
+        unique_al = sorted(plot_df['A_L'].unique())
+        color_map = {}
+        base_palette = sns.color_palette('Set2', n_colors=max(3, len(unique_al)))
+        for idx_ag, al in enumerate(unique_al):
+            base = base_palette[idx_ag % len(base_palette)]
+            ags = sorted(plot_df.loc[plot_df['A_L'] == al, 'A_G'].unique())
+            # Generate base-to-darker shades so higher A_L lines are not too light
+            base_rgb = to_rgb(base)
+            dark_rgb = tuple(max(0.0, c * 0.55) for c in base_rgb)  # darker companion
+            shades = sns.blend_palette([base_rgb, dark_rgb], n_colors=max(3, len(ags)))
+            for j, ag in enumerate(ags):
+                color_map[(ag, al)] = shades[j]
+
+        # Sort by tau_L for nice lines
+        plot_df = plot_df.sort_values('tau_L')
+
+        is_pap = self.cm_data.contract_type == "PAP"
+        has_gamma = 'Gamma' in plot_df.columns
+
+        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+        metrics = ['StrikePrice', 'ContractAmount']
+        titles = ['Strike Price', 'Contract Amount']
+
+        for ax, m, title in zip(axes, metrics, titles):
+            for pair in pairs:
+                a_g, a_l = pair
+                sub = plot_df[(plot_df['A_G'] == a_g) & (plot_df['A_L'] == a_l)]
+                if sub.empty:
+                    continue
+                # Emphasize the symmetric mid-risk case (A_G = A_L = 0.5)
+                is_mid = np.isclose(a_g, 0.5) and np.isclose(a_l, 0.5)
+                lw = 3.0 if is_mid else 2.0
+                ms = 8 if is_mid else 6
+                z = 4 if is_mid else 2
+                edge_color = 'black' if is_mid else 'none'
+                marker = 'o' if is_mid else 'none'
+                ax.plot(sub['tau_L'], sub[m], linewidth=lw, markersize=ms,
+                        color=color_map[(a_g, a_l)], label=f"A_G={a_g}, A_L={a_l}", marker=marker, zorder=z, markeredgecolor=edge_color)
+
+            # Reference lines
+            if m == 'StrikePrice':
+                ref = (self.cm_data.Capture_price_G_avg if is_pap else self.cm_data.expected_price) * 1e3
+                ax.axhline(ref, color='black', linestyle='--', label='Reference price')
+            elif m == 'ContractAmount' and not is_pap:
+                ref = self.cm_data.expected_production / 8760 * 1000
+                ax.axhline(ref, color='black', linestyle='--', label='Expected production (MW)')
+
+            # Secondary axis for Gamma in PAP on ContractAmount
+            if m == 'ContractAmount' and is_pap and has_gamma:
+                ax2 = ax.twinx()
+                for pair in pairs:
+                    a_g, a_l = pair
+                    sub = plot_df[(plot_df['A_G'] == a_g) & (plot_df['A_L'] == a_l)]
+                    if sub.empty or 'Gamma' not in sub.columns:
+                        continue
+                    is_mid = np.isclose(a_g, 0.5) and np.isclose(a_l, 0.5)
+                    lw = 2.0 if is_mid else 1.0
+                    z = 4 if is_mid else 2
+                    edge_color = 'black' if is_mid else 'none'
+                    marker = 'o' if is_mid else 'none'
+                    ax2.plot(sub['tau_L'], sub['Gamma'] * 100, linestyle='--', linewidth=lw,
+                             color=color_map[(a_g, a_l)], alpha=0.6, zorder=z, markeredgecolor=edge_color, marker=marker)
+                ax2.set_ylabel('Gamma (%)', color='gray', fontsize=self.labelsize)
+                ax2.tick_params(axis='y', labelcolor='gray')
+
+            ax.set_xlabel('Load Negotiation Power $\\tau_L$', fontsize=self.labelsize)
+            ax.set_title(title, fontsize=self.titlesize)
+            ax.grid(True, alpha=0.3)
+
+            # Avoid scientific notation/offset text and clamp y-limits for Gamma on Contract Amount (PAP only)
+            if m == 'ContractAmount' and is_pap and has_gamma:
+                ax2.set_ylim(99, 101)
+
+        # Build a single legend from unique pairs
+        handles = [mpatches.Patch(color=color_map[(pair[0], pair[1])], label=f"A_G={pair[0]}, A_L={pair[1]}") for pair in pairs]
+        # Place legend below plots to avoid overlapping the title
+        #fig.legend(handles=handles, loc='lower center', ncol=min(3, len(handles)), bbox_to_anchor=(0.5, -0.02))
+        fig.legend(
+            handles=handles,
+            loc='upper center',
+            ncol=3,                    # 3 columns
+            bbox_to_anchor=(0.5, 0.02),
+            frameon=False
+        )
+        fig.suptitle(f"{self.cm_data.contract_type}: Negotiation Power vs Risk Aversion", fontsize=self.suptitlesize)
+        plt.tight_layout(rect=[0, 0.0, 1, 1])
+        if filename:
+            filepath = os.path.join(self.plots_dir, filename)
+            plt.savefig(filepath, bbox_inches='tight', dpi=300)
+            print(f"Plot saved to {filepath}")
+            plt.close(fig)
+        else:
+            plt.show()
 
 
     def _plot_3D_sensitivity_results(self, sensitivity_type, filename=None):
@@ -942,8 +1128,6 @@ class Plotting_Class:
         filename : str, optional
             Path to save the plot. If None, the plot will be displayed.
         """
-        
-        
         plt.figure(figsize=(10, 8))
         xlim = (-31, 31)
         ylim = (-31, 31)
@@ -952,60 +1136,90 @@ class Plotting_Class:
             boundary_results = self.boundary_results_price
         elif sensitivity_type == "production":
             boundary_results = self.boundary_results_production
+        else:
+            boundary_results = []
 
-        
-        
-        # Plot each scenario's boundary
+        # Prepare axis
+        ax = plt.gca()
+
+        # Plot each scenario's feasible shading and boundary contour; else fallback
         for result in boundary_results:
             scenario = result['scenario']
 
-            boundary_points = np.array(result['boundary_points'])
-            if len(boundary_points) < 2:
-                print(f"Skipping scenario {scenario['label']} due to insufficient boundary points.")
-                continue
-            lowest_boundary = self._extract_lowest_boundary(boundary_points)
-            if lowest_boundary is None or len(lowest_boundary) < 2:
-                print(f"Skipping scenario {scenario['label']} due to insufficient boundary points after filtering.")
-                continue
-            n_space = np.linspace(xlim[0]*1e-2, xlim[1]*1e-2, 100)
-            # Create and fit the regression model
-            X = lowest_boundary[:, 0].reshape(-1, 1)  # X needs to be 2D for sklearn
-            y = lowest_boundary[:, 1]
-            model = LinearRegression().fit(X, y)
+            if 'feas_mask' in result and 'KL_grid' in result and 'KG_grid' in result:
+                KL_grid = np.array(result['KL_grid'])
+                KG_grid = np.array(result['KG_grid'])
+                feas_mask = np.array(result['feas_mask'])
+                try:
+                    # Shading: fill feasible region for this scenario (no legend entry)
+                    ax.contourf(KL_grid * 100, KG_grid * 100, feas_mask,
+                                levels=[0.5, 1.1], colors=[scenario['color']],
+                                alpha=0.15, antialiased=True, zorder=1)
+                    # Boundary curve on top
+                    ax.contour(KL_grid * 100, KG_grid * 100, feas_mask,
+                               levels=[0.5], colors=[scenario['color']],
+                               linestyles=[scenario['linestyle']], linewidths=[scenario['linewidth']], zorder=3)
+                    # Legend proxy for the line
+                    ax.plot([], [], color=scenario['color'], linestyle=scenario['linestyle'],
+                            linewidth=scenario['linewidth'], label=scenario['label'])
+                except Exception as e:
+                    print(f"Contour plotting failed for {scenario['label']}: {e}. Falling back to points/regression.")
+                    # Fallback to regression through boundary points if present
+                    boundary_points = np.array(result.get('boundary_points', []))
+                    if len(boundary_points) >= 2:
+                        lowest_boundary = self._extract_lowest_boundary(boundary_points)
+                        if lowest_boundary is not None and len(lowest_boundary) >= 2:
+                            n_space = np.linspace(xlim[0]*1e-2, xlim[1]*1e-2, 100)
+                            X = lowest_boundary[:, 0].reshape(-1, 1)
+                            y = lowest_boundary[:, 1]
+                            model = LinearRegression().fit(X, y)
+                            X_pred = n_space.reshape(-1, 1)
+                            boundary = model.predict(X_pred)
+                            sns.lineplot(x=n_space*100, y=boundary*100, label=scenario['label'],
+                                         linestyle=scenario['linestyle'], linewidth=scenario['linewidth'], color=scenario['color'], zorder=3)
+                            sns.scatterplot(x=lowest_boundary[:, 0]*100, y=lowest_boundary[:, 1]*100, s=90, alpha=0.5,
+                                            color=scenario['color'], edgecolor='black')
+            else:
+                # Legacy behavior: use boundary_points with regression
+                boundary_points = np.array(result.get('boundary_points', []))
+                if len(boundary_points) < 2:
+                    print(f"Skipping scenario {scenario['label']} due to insufficient boundary points.")
+                    continue
+                lowest_boundary = self._extract_lowest_boundary(boundary_points)
+                if lowest_boundary is None or len(lowest_boundary) < 2:
+                    print(f"Skipping scenario {scenario['label']} due to insufficient boundary points after filtering.")
+                    continue
+                n_space = np.linspace(xlim[0]*1e-2, xlim[1]*1e-2, 100)
+                X = lowest_boundary[:, 0].reshape(-1, 1)
+                y = lowest_boundary[:, 1]
+                model = LinearRegression().fit(X, y)
+                X_pred = n_space.reshape(-1, 1)
+                boundary = model.predict(X_pred)
+                sns.lineplot(x=n_space*100, y=boundary*100, label=scenario['label'],
+                             linestyle=scenario['linestyle'], linewidth=scenario['linewidth'], color=scenario['color'])
+                sns.scatterplot(x=lowest_boundary[:, 0]*100, y=lowest_boundary[:, 1]*100, s=90, alpha=0.5,
+                                color=scenario['color'], edgecolor='black')
 
-            # Generate points along the regression line
-            X_pred = n_space.reshape(-1, 1)  # Reshape for prediction
-            boundary = model.predict(X_pred)
-
-            
-            # Plot the boundary points
-            sns.lineplot(x = n_space*100, y = boundary * 100, 
-                     label=scenario['label'],
-                     linestyle=scenario['linestyle'], 
-                     linewidth=scenario['linewidth'],
-                     color=scenario['color'])
-            sns.scatterplot( x = lowest_boundary[:, 0] * 100, y = lowest_boundary[:, 1] * 100, s=90, alpha=0.5, color =scenario['color'], edgecolor='black')
         # Add labels and formatting
         if sensitivity_type == "price":
-            plt.xlabel('$K_L/E^P(\lambda_\Sigma)$ (%)', fontsize=self.labelsize)
-            plt.ylabel('$K_G/E^P(\lambda_\Sigma)$ (%)', fontsize=self.labelsize)
+            plt.xlabel(r'Load price bias $K^L$ (% of $\mathbb{E}[\mathrm{price}]$)', fontsize=self.labelsize)
+            plt.ylabel(r'Generator price bias $K^G$ (% of $\mathbb{E}[\mathrm{price}]$)', fontsize=self.labelsize)
         elif sensitivity_type == "production":
-            plt.xlabel('$K_L/E^P(\P^G_\Sigma)$ (%)', fontsize=self.labelsize)
-            plt.ylabel('$K_G/E^P(\P^G_\Sigma)$ (%)',fontsize=self.labelsize)
-        plt.title(f'{self.cm_data.contract_type}-{sensitivity_type}: No-Contract Boundaries for Different Risk Aversion Levels',fontsize=self.titlesize)
+            plt.xlabel(r'Load production bias $K^L$ (% of $\mathbb{E}[\mathcal{P}^G]$)', fontsize=self.labelsize)
+            plt.ylabel(r'Generator production bias $K^G$ (% of $\mathbb{E}[\mathcal{P}^G]$)', fontsize=self.labelsize)
+        plt.title(f'{self.cm_data.contract_type}-{sensitivity_type}: No-Contract Boundaries for Different Risk Aversion Levels', fontsize=self.titlesize)
         plt.grid(True, alpha=0.3)
-        plt.legend()
-        plt.axhline(y=0, color='k',linewidth=2)
-        plt.axvline(x=0, color='k',linewidth=2)
-        
+        plt.legend(loc="upper left")
+        plt.axhline(y=0, color='k', linewidth=2)
+        plt.axvline(x=0, color='k', linewidth=2)
+
         # Set the x and y axis limits similar to the figure
         plt.xlim(xlim[0], xlim[1])
-        plt.ylim(ylim[0],  ylim[1])
-        
+        plt.ylim(ylim[0], ylim[1])
+
         plt.tight_layout()
         plt.subplots_adjust(top=0.92)
 
-        
         if filename:
             plt.savefig(filename, dpi=300, bbox_inches='tight')
             print(f"Plot saved to {filename}")
@@ -1022,32 +1236,38 @@ class Plotting_Class:
 
 
         def _plot_boundary_on_axis(ax, result):
-            """Plot a single boundary on a given axis."""
+            """Plot a single boundary on a given axis (use contour if feas_mask available)."""
             scenario = result['scenario']
-            lowest_boundary = self._extract_lowest_boundary(result['boundary_points'])
-
-            if lowest_boundary is None or len(lowest_boundary) < 2:
-                print(f"Skipping scenario {scenario['label']} due to insufficient boundary points after filtering.")
-                return
-
-            # Fit linear regression
-            X = lowest_boundary[:, 0].reshape(-1, 1)
-            y = lowest_boundary[:, 1]
-            model = LinearRegression().fit(X, y)
-            
-            # Generate points along the regression line
-            xlim = [-31, 31]
-            n_space = np.linspace(xlim[0]/100, xlim[1]/100, 100)
-            X_pred = n_space.reshape(-1, 1)
-            boundary = model.predict(X_pred)
-            
-            # Plot with styling from scenario
-            sns.lineplot(x = n_space * 100, y =  boundary * 100, 
-                    label=f"A_G={scenario['A_G']}, A_L={scenario['A_L']}",
-                    linestyle=scenario['linestyle'], 
-                    linewidth=scenario['linewidth'],
-                    color=scenario['color'],
-                    ax=ax,)
+            if 'feas_mask' in result and 'KL_grid' in result and 'KG_grid' in result:
+                KL_grid = np.array(result['KL_grid'])
+                KG_grid = np.array(result['KG_grid'])
+                feas_mask = np.array(result['feas_mask'])
+                # Shading behind the curve: fill feasible region
+                ax.contourf(KL_grid*100, KG_grid*100, feas_mask,
+                            levels=[0.5, 1.1], colors=[scenario['color']], alpha=0.15, antialiased=True)
+                # Boundary curve
+                cs = ax.contour(KL_grid*100, KG_grid*100, feas_mask,
+                                levels=[0.5], colors=[scenario['color']],
+                                linestyles=[scenario['linestyle']], linewidths=[scenario['linewidth']])
+                # Add a proxy handle for legend instead of accessing cs.collections
+                ax.plot([], [], color=scenario['color'], linestyle=scenario['linestyle'],
+                        linewidth=scenario['linewidth'], label=f"A_G={scenario['A_G']}, A_L={scenario['A_L']}")
+            else:
+                lowest_boundary = self._extract_lowest_boundary(result.get('boundary_points', []))
+                if lowest_boundary is None or len(lowest_boundary) < 2:
+                    print(f"Skipping scenario {scenario['label']} due to insufficient boundary points after filtering.")
+                    return
+                X = lowest_boundary[:, 0].reshape(-1, 1)
+                y = lowest_boundary[:, 1]
+                model = LinearRegression().fit(X, y)
+                xlim = [-31, 31]
+                n_space = np.linspace(xlim[0]/100, xlim[1]/100, 100)
+                X_pred = n_space.reshape(-1, 1)
+                boundary = model.predict(X_pred)
+                sns.lineplot(x=n_space*100, y=boundary*100,
+                             label=f"A_G={scenario['A_G']}, A_L={scenario['A_L']}",
+                             linestyle=scenario['linestyle'], linewidth=scenario['linewidth'],
+                             color=scenario['color'], ax=ax)
                 
         
         
@@ -1092,11 +1312,11 @@ class Plotting_Class:
         # Common formatting
         for ax in [ax1, ax2, ax3, ax4]:
             if sensitivity_type == "price":
-                ax.set_xlabel('$K_L/E^P(\lambda_\Sigma)$ (%)',fontsize=self.labelsize)
-                ax.set_ylabel('$K_G/E^P(\lambda_\Sigma)$ (%)', fontsize=self.labelsize)
+                ax.set_xlabel('Load price bias KL (% of E[price])', fontsize=self.labelsize)
+                ax.set_ylabel('Generator price bias KG (% of E[price])', fontsize=self.labelsize)
             elif sensitivity_type == "production":
-                ax.set_xlabel('$K_L/E^P(\P^G_\Sigma)$ (%)', fontsize=self.labelsize)
-                ax.set_ylabel('$K_G/E^P(\P^G_\Sigma)$ (%)', fontsize=self.labelsize)
+                ax.set_xlabel('Load production bias KL (% of E[production])', fontsize=self.labelsize)
+                ax.set_ylabel('Generator production bias KG (% of E[production])', fontsize=self.labelsize)
             ax.grid(True, alpha=0.3)
             ax.set_xlim(-30, 30)
             ax.set_ylim(-30, 30)
@@ -1624,6 +1844,80 @@ class Plotting_Class:
         # Define the sensitivity analyses to process
 
         elasticities = {}
+
+        def _compute_local_elasticity(df_in: pd.DataFrame, factor_col: str, metric_cols: list[str], baseline: float) -> dict:
+            """Compute local elasticities at baseline using central diff if possible, else local linear fit.
+            E = (dY/dX) * (X0 / Y0). Handles NaNs by skipping invalid rows; returns NaN when insufficient data.
+            """
+            if df_in is None or df_in.empty:
+                return {m: np.nan for m in metric_cols}
+
+            df = df_in[[factor_col] + metric_cols].copy()
+            # Keep rows where factor is finite
+            df = df[np.isfinite(df[factor_col])]
+            if df.empty:
+                return {m: np.nan for m in metric_cols}
+
+            # Sort by factor and drop duplicate X keeping closest to baseline
+            df = df.sort_values(factor_col)
+            # Identify indices around baseline
+            x_vals = df[factor_col].values.astype(float)
+
+            # Find bracket points around baseline
+            left_mask = x_vals < baseline
+            right_mask = x_vals > baseline
+
+            result = {}
+            for m in metric_cols:
+                y_series = df[m].astype(float)
+                # Valid rows for this metric
+                valid = np.isfinite(y_series.values)
+                if valid.sum() < 2:
+                    result[m] = np.nan
+                    continue
+
+                x = x_vals[valid]
+                y = y_series.values[valid]
+
+                # Recompute masks on valid-only arrays
+                left_idx = np.where(x < baseline)[0]
+                right_idx = np.where(x > baseline)[0]
+
+                slope = np.nan
+                y0 = np.nan
+                # Try exact baseline first
+                exact_idx = np.where(np.isclose(x, baseline))[0]
+                if exact_idx.size > 0:
+                    y0 = y[exact_idx[0]]
+                # Central difference if we have neighbors on both sides
+                if left_idx.size > 0 and right_idx.size > 0:
+                    iL = left_idx[-1]
+                    iR = right_idx[0]
+                    xL, yL = x[iL], y[iL]
+                    xR, yR = x[iR], y[iR]
+                    if np.isfinite(yL) and np.isfinite(yR) and xR != xL:
+                        slope = (yR - yL) / (xR - xL)
+                        if not np.isfinite(y0):
+                            # Linear interpolate y0
+                            y0 = yL + (baseline - xL) * slope
+                # Fallback: local linear fit using up to 5 nearest points
+                if not np.isfinite(slope):
+                    if x.size >= 2:
+                        # Select nearest k points
+                        k = min(5, x.size)
+                        order = np.argsort(np.abs(x - baseline))[:k]
+                        x_fit = x[order]
+                        y_fit = y[order]
+                        if np.unique(x_fit).size >= 2:
+                            coeffs = np.polyfit(x_fit, y_fit, deg=1)
+                            slope = coeffs[0]
+                            y0 = np.polyval(coeffs, baseline)
+                # Compute elasticity
+                if not np.isfinite(slope) or not np.isfinite(y0) or np.isclose(y0, 0.0):
+                    result[m] = np.nan
+                else:
+                    result[m] = float(slope * (baseline / y0))
+            return result
         if bias == False:
             sensitivity_analyses = [
                 {
@@ -1699,27 +1993,12 @@ class Plotting_Class:
 
         
         for analysis in sensitivity_analyses:
-            df = analysis['df']        
-            # Sort by factor column to ensure proper pair-wise comparison
-            #df = df.sort_values(analysis['factor_col'])
-            
-             # Sort by factor column to ensure correct order for pct_change
-            df = df.sort_values(analysis['factor_col']).reset_index(drop=True)
-            df.dropna(inplace=True)  # Ensure no NaN values for pct_change calculations
-
-            
-            # Calculate percentage change for metrics and the factor column
-            pct_change_metrics  =df[metrics].pct_change()
-            
-            pct_change_factor = df[analysis['factor_col']].pct_change()
-            
-            # Calculate elasticity: (% change in metric) / (% change in factor)
-            elasticity_df = pct_change_metrics.div(pct_change_factor, axis=0)
-         
-            # Store the results for this analysis
-            elasticity_df.dropna(inplace=True)  # Drop rows with NaN values
-            elasticity_df = elasticity_df.mean().round(3)#.to_frame().T  # Convert to DataFrame
-            elasticities[analysis['name']] = elasticity_df.to_dict()
+            df = analysis['df']
+            factor_col = analysis['factor_col']
+            # All sensitivity factors are modeled as multiplicative changes around 1.0
+            baseline = 1.0
+            vals = _compute_local_elasticity(df, factor_col=factor_col, metric_cols=metrics, baseline=baseline)
+            elasticities[analysis['name']] = {k: (None if (v is None) else (np.nan if not np.isfinite(v) else round(v, 3))) for k, v in vals.items()}
         
         # You could add more parameter elasticities here (risk aversion, bias, etc.)
         
@@ -1892,24 +2171,25 @@ class Plotting_Class:
         ncols = int(np.ceil(np.sqrt(n_metrics)))
         nrows = int(np.ceil(n_metrics / ncols))
 
-        fig, axes = plt.subplots(nrows, ncols, figsize=(8 * ncols, 6 * nrows))
+        fig, axes = plt.subplots(nrows, ncols, figsize=(8.5 * ncols, 6 * nrows))
         axes = axes.flatten()  # Flatten for easy indexing
 
         for idx, metric in enumerate(metrics):
             elasticities = {}
             for analysis in sensitivity_analyses:
                 df = analysis['df']
-                if df.empty == True:
+                if df is None or df.empty:
                     print(f"Warning: DataFrame for {analysis['name']} is empty. Skipping.")
                     continue
-                df = df.sort_values(analysis['factor_col']).reset_index(drop=True)
-                df.dropna(inplace=True)  # Ensure no NaN values for pct_change calculations
-                pct_change_metric = df[metric].pct_change().dropna()
-                pct_change_factor = df[analysis['factor_col']].pct_change().dropna()
-                elasticity = pct_change_metric.div(pct_change_factor, axis=0)
-                elasticity.dropna(inplace=True)
-                elasticity = elasticity.mean().round(2)
-                elasticities[analysis['name']] = elasticity
+                factor_col = analysis['factor_col']
+                # All sensitivity factors are modeled as multiplicative changes around 1.0
+                baseline = 1.0
+                vals = self._safe_local_elasticity_single(df, factor_col=factor_col, metric_col=metric, baseline=baseline)
+                if vals is not None and np.isfinite(vals):
+                    # Keep full precision for plotting; format only in labels
+                    elasticities[analysis['name']] = float(vals)
+                else:
+                    elasticities[analysis['name']] = np.nan
 
             # Prepare data for plotting
             factors = list(elasticities.keys())
@@ -1943,10 +2223,10 @@ class Plotting_Class:
                 width = bar.get_width()
                 y     = bar.get_y() + bar.get_height()/2
 
-                offset = 13            # points   (change to taste)
+                offset = -15            # points   (change to taste)
                 ha     = 'left'
                 if width < 0:         # put the label on the other side of negative bars
-                    offset = -5
+                    offset = -3
                     ha     = 'right'
 
                 txt = ax.annotate(f'{value:.3f}',
@@ -1963,17 +2243,177 @@ class Plotting_Class:
             span = xmax - xmin
             ax.set_xlim(xmin - 0.05*span, xmax + 0.05*span)  
         # Delete unused
-        for j in range(idx + 1, len(axes)):
-            fig.delaxes(axes[j])
-        plt.tight_layout()
-        plt.suptitle(f"Parameter Sensitivity {self.cm_data.contract_type}, $A_G$={self.cm_data.A_G},$A_L$={self.cm_data.A_L}", fontsize=self.suptitlesize, y=1.02)
-        if filename:
-            filepath = os.path.join(self.plots_dir, filename)
-            plt.savefig(filepath, bbox_inches='tight', dpi=300)
-            print(f"Tornado plot saved to {filepath}")
-            plt.close()
-        else:
-            plt.show()
+
+    def _plot_elasticity_tornado_vs_risk(self,
+                                         df: pd.DataFrame,
+                                         fixed_A_G_values=None,
+                                         fixed_A_L_values=None,
+                                         metrics=['StrikePrice'],
+                                         filename_prefix=None,
+                                         fix: str = 'A_G'):
+        """Grouped tornado bars by factor across the other party's risk values.
+        Modes:
+        - fix='A_G': fix A_G (provide fixed_A_G_values), group bars by A_L (legend A_L), one figure per A_G per metric.
+        - fix='A_L': fix A_L (provide fixed_A_L_values), group bars by A_G (legend A_G), one figure per A_L per metric.
+        Expects df from run_elasticity_vs_risk_sensitivity_analysis with a 'Factor' column and multiplicative X columns.
+        """
+        if df is None or df.empty:
+            print("No data for elasticity_vs_risk plotting.")
+            return
+
+        # Factor -> x-column mapping
+        factor_xcol = {
+            'Production \n (Expected)': 'Production_Change',
+            'Production (Std)': 'Production_Change',
+            'Price Sensitivity \n(Expected)': 'Price_Change',
+            'Price Sensitivity (Std)': 'Price_Change',
+            'Load Sensitivity \n(Expected)': 'Load_Change',
+            'Load Sensitivity (Std)': 'Load_Change',
+            'Prod. Capture Rate \n(Expected)': 'CaptureRate_Change',
+            'Load. Capture Rate\n (Expected)': 'Load_CaptureRate_Change',
+        }
+
+        # Order of factors for plotting
+        factor_order = [
+            'Prod. Capture Rate \n(Expected)',
+            'Price Sensitivity \n(Expected)',
+            'Production \n(Expected)',
+            'Production (Std)',
+            'Price Sensitivity (Std)',
+            'Load Sensitivity \n(Expected)',
+            'Load. Capture Rate \n(Expected)',
+            'Load Sensitivity (Std)',
+        ]
+
+        baseline = 1.0
+    # We'll size the palette dynamically later based on the number of groups per figure
+
+        for metric in metrics:
+            if fix == 'A_G':
+                if not fixed_A_G_values:
+                    print("No fixed_A_G_values provided for fix='A_G'.")
+                    return
+                for ag in fixed_A_G_values:
+                    sub = df[df['A_G'].round(3) == round(ag, 3)].copy()
+                    if sub.empty:
+                        print(f"Warning: No rows for A_G={ag} in elasticity_vs_risk df.")
+                        continue
+                    var_values = sorted(sub['A_L'].dropna().unique().tolist())
+                    # Compute elasticity matrix: rows=factors, cols=A_L
+                    data = {al: [] for al in var_values}
+                    present_factors = [f for f in factor_order if f in sub['Factor'].unique()]
+                    if not present_factors:
+                        print(f"No recognized factors for A_G={ag}")
+                        continue
+                    for factor in present_factors:
+                        xcol = factor_xcol.get(factor)
+                        for al in var_values:
+                            block = sub[(sub['Factor'] == factor) & (sub['A_L'].round(3) == round(al, 3))]
+                            val = self._safe_local_elasticity_single(block, factor_col=xcol, metric_col=metric, baseline=baseline)
+                            if val is not None and np.isfinite(val) and abs(val) < 1e-6:
+                                val = 0.0
+                            data[al].append(np.nan if val is None or not np.isfinite(val) else float(val))
+
+                    plot_df = pd.DataFrame(data, index=present_factors)
+                    # Drop groups (columns) that are entirely NaN to avoid empty legend entries
+                    valid_cols = [c for c in plot_df.columns if np.isfinite(plot_df[c].values).any()]
+                    if not valid_cols:
+                        print(f"No valid elasticity values for A_G={ag} across any A_L.")
+                        continue
+                    plot_df = plot_df[valid_cols]
+
+                    # Plot grouped horizontal bars
+                    n_factors = len(present_factors)
+                    n_groups = len(valid_cols)
+                    bar_h = 0.8 / max(1, n_groups)
+                    y_positions = np.arange(n_factors)
+
+                    fig, ax = plt.subplots(figsize=(10, 0.6 * n_factors + 2))
+                    for i, al in enumerate(valid_cols):
+                        vals = plot_df[al].values
+                        color = self._color_for_risk(al, kind='A_L')
+                        ax.barh(y_positions + (i - (n_groups-1)/2) * bar_h, vals, height=bar_h, color=color, label=f"A_L={al}")
+
+                    ax.axvline(0.0, color='k', linewidth=1)
+                    ax.set_yticks(y_positions)
+                    ax.set_yticklabels([f"{f}" for f in present_factors], fontsize=self.legendsize)
+                    ax.set_xlabel(f"Elasticity of ${metric}$", fontsize=self.labelsize)
+                    ax.set_title(f"Parameter Sensitivity {self.cm_data.contract_type}, A_G={ag}", fontsize=self.titlesize)
+                    ax.grid(axis='x', linestyle=':', alpha=0.6)
+                    ax.legend( fontsize=self.legendsize-1, title_fontsize=self.legendsize-1, ncol=min(3, n_groups))
+
+                    plt.tight_layout()
+                    if filename_prefix:
+                        fname = f"{filename_prefix}_{metric}_AG={ag}.png"
+                        plt.savefig(fname, bbox_inches='tight', dpi=300)
+                        print(f"Saved elasticity-vs-risk tornado: {fname}")
+                        plt.close(fig)
+                    else:
+                        plt.show()
+            elif fix == 'A_L':
+                if not fixed_A_L_values:
+                    print("No fixed_A_L_values provided for fix='A_L'.")
+                    return
+                for al in fixed_A_L_values:
+                    sub = df[df['A_L'].round(3) == round(al, 3)].copy()
+                    if sub.empty:
+                        print(f"Warning: No rows for A_L={al} in elasticity_vs_risk df.")
+                        continue
+                    var_values = sorted(sub['A_G'].dropna().unique().tolist())
+                    # Compute elasticity matrix: rows=factors, cols=A_G
+                    data = {ag: [] for ag in var_values}
+                    present_factors = [f for f in factor_order if f in sub['Factor'].unique()]
+                    if not present_factors:
+                        print(f"No recognized factors for A_L={al}")
+                        continue
+                    for factor in present_factors:
+                        xcol = factor_xcol.get(factor)
+                        for ag in var_values:
+                            block = sub[(sub['Factor'] == factor) & (sub['A_G'].round(3) == round(ag, 3))]
+                            val = self._safe_local_elasticity_single(block, factor_col=xcol, metric_col=metric, baseline=baseline)
+                            if val is not None and np.isfinite(val) and abs(val) < 1e-6:
+                                val = 0.0
+                            data[ag].append(np.nan if val is None or not np.isfinite(val) else float(val))
+
+                    plot_df = pd.DataFrame(data, index=present_factors)
+                    # Drop groups (columns) that are entirely NaN to avoid empty legend entries
+                    valid_cols = [c for c in plot_df.columns if np.isfinite(plot_df[c].values).any()]
+                    if not valid_cols:
+                        print(f"No valid elasticity values for A_L={al} across any A_G.")
+                        continue
+                    plot_df = plot_df[valid_cols]
+
+                    # Plot grouped horizontal bars
+                    n_factors = len(present_factors)
+                    n_groups = len(valid_cols)
+                    bar_h = 0.8 / max(1, n_groups)
+                    y_positions = np.arange(n_factors)
+
+                    fig, ax = plt.subplots(figsize=(10, 0.6 * n_factors + 2))
+                    for i, ag in enumerate(valid_cols):
+                        vals = plot_df[ag].values
+                        color = self._color_for_risk(ag, kind='A_G')
+                        ax.barh(y_positions + (i - (n_groups-1)/2) * bar_h, vals, height=bar_h, color=color, label=f"A_G={ag}")
+
+                    ax.axvline(0.0, color='k', linewidth=1)
+                    ax.set_yticks(y_positions)
+                    ax.set_yticklabels([f"{f}" for f in present_factors], fontsize=self.legendsize)
+                    ax.set_xlabel(f"Elasticity of ${metric}$", fontsize=self.labelsize)
+                    ax.set_title(f"Parameter Sensitivity {self.cm_data.contract_type}, $A_L$={al}", fontsize=self.titlesize)
+                    ax.grid(axis='x', linestyle=':', alpha=0.6)
+                    ax.legend( fontsize=self.legendsize-1, title_fontsize=self.legendsize-1, ncol=min(3, n_groups))
+
+                    plt.tight_layout()
+                    if filename_prefix:
+                        fname = f"{filename_prefix}_{metric}_AL={al}.png"
+                        plt.savefig(fname, bbox_inches='tight', dpi=300)
+                        print(f"Saved elasticity-vs-risk tornado: {fname}")
+                        plt.close(fig)
+                    else:
+                        plt.show()
+            else:
+                print("Invalid fix mode. Use fix='A_G' or fix='A_L'.")
+        
 
     def _plot_nash_product_evolution(self, filename=None):
         """
@@ -1984,6 +2424,7 @@ class Plotting_Class:
 
         # 1. Risk Aversion Impact on Nash Product
         risk_df = self.risk_sensitivity_df.copy()
+        #risk_df['Nash_Product'] = risk_df['Nash_Product']**2 # Since it is using the 0.5 utlity function from gurobi, manually would give the same results. 
         
         # Create pivot table for heatmap
         pivot = risk_df.pivot_table(

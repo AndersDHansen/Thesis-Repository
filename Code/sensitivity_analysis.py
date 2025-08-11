@@ -122,7 +122,7 @@ def run_risk_sensitivity_analysis(input_data_base, A_G_values, A_L_values):
                     'Utility_G': contract_model.results.utility_G,
                     'Utility_L': contract_model.results.utility_L,
                     'NashProductLog': contract_model.results.objective_value,
-                    'Nash_Product': np.exp(contract_model.results.objective_value),
+                    'Nash_Product': contract_model.results.Nash_Product,
                     'ThreatPoint_G': contract_model.data.Zeta_G,
                     'ThreatPoint_L': contract_model.data.Zeta_L,
                 }
@@ -185,8 +185,8 @@ def run_price_bias_sensitivity_analysis(input_data_base):
     print("\n--- Starting Price Bias Sensitivity Analysis ---")
 
     # Define bias factors - wider range for more insights
-    K_G_factors = [-0.05, -0.02, -0.01, 0, 0.01, 0.02, 0.05]
-    K_L_factors = [-0.05, -0.02, -0.01, 0, 0.01, 0.02, 0.05]
+    K_G_factors = [-0.1,-0.05, -0.01, 0, 0.01, 0.05,0.1]
+    K_L_factors = [-0.1,-0.05, -0.01, 0, 0.01, 0.05,0.1]
     results_sensitivity = []
 
     # Create parameter grid and use tqdm for progress tracking
@@ -213,8 +213,7 @@ def run_price_bias_sensitivity_analysis(input_data_base):
                 'Utility_L': contract_model.results.utility_L,
                 'ThreatPoint_G': contract_model.data.Zeta_G,
                 'ThreatPoint_L': contract_model.data.Zeta_L,
-                'Nash_Product': (contract_model.results.utility_G - contract_model.data.Zeta_G) * 
-                                (contract_model.results.utility_L - contract_model.data.Zeta_L)
+                'Nash_Product': contract_model.results.Nash_Product
             }
             
             # Add contract-type specific metrics
@@ -259,8 +258,8 @@ def run_production_bias_sensitivity_analysis(input_data_base):
     print("\n--- Starting Production Bias Sensitivity Analysis ---")
 
     # Define bias factors - wider range for more insights
-    K_G_factors = [-0.05, -0.02, -0.01, 0, 0.01, 0.02, 0.05]
-    K_L_factors = [-0.05, -0.02, -0.01, 0, 0.01, 0.02, 0.05]
+    K_G_factors = [-0.1,-0.05, -0.01, 0, 0.01, 0.05,0.1]
+    K_L_factors = [-0.1,-0.05,  -0.01, 0, 0.01, 0.05,0.1]
     results_sensitivity = []
 
     # Create parameter grid and use tqdm for progress tracking
@@ -287,8 +286,7 @@ def run_production_bias_sensitivity_analysis(input_data_base):
                 'Utility_L': contract_model.results.utility_L,
                 'ThreatPoint_G': contract_model.data.Zeta_G,
                 'ThreatPoint_L': contract_model.data.Zeta_L,
-                'Nash_Product': (contract_model.results.utility_G - contract_model.data.Zeta_G) * 
-                                (contract_model.results.utility_L - contract_model.data.Zeta_L)
+                'Nash_Product': contract_model.results.Nash_Product
             }
             
             # Add contract-type specific metrics
@@ -355,7 +353,7 @@ def run_capture_rate_sensitivity_analysis(input_data_base):
             
             # Create base result dictionary
             result_dict = {
-                'CaptureRate_Change': cr_mult,
+                'CaptureRate_Change': 1 + cr_mult,
                 'Avg_G_Capture_Rate': contract_model.data.capture_rate.mean().mean(),
                 'StrikePrice': contract_model.results.strike_price,
                 'A_G': current_input_data.A_G,
@@ -365,8 +363,7 @@ def run_capture_rate_sensitivity_analysis(input_data_base):
                 'Utility_L': contract_model.results.utility_L,
                 'ThreatPoint_G': contract_model.data.Zeta_G,
                 'ThreatPoint_L': contract_model.data.Zeta_L,
-                'Nash_Product': (contract_model.results.utility_G - contract_model.data.Zeta_G) * 
-                                (contract_model.results.utility_L - contract_model.data.Zeta_L)
+                'Nash_Product': contract_model.results.Nash_Product
             }
             
             # Add contract-type specific metrics
@@ -445,8 +442,7 @@ def run_price_sensitivity_analysis(input_data_base,sensitivity_type):
                 'Utility_L': contract_model.results.utility_L,
                 'ThreatPoint_G': contract_model.data.Zeta_G,
                 'ThreatPoint_L': contract_model.data.Zeta_L,
-                'Nash_Product': (contract_model.results.utility_G - contract_model.data.Zeta_G) * 
-                                (contract_model.results.utility_L - contract_model.data.Zeta_L)
+                'Nash_Product': contract_model.results.Nash_Product
             }
             
             # Add contract-type specific metrics
@@ -463,7 +459,7 @@ def run_price_sensitivity_analysis(input_data_base,sensitivity_type):
         except Exception as e:
             print(f"Error for capture rate multiplier={price_mult}: {str(e)}")
             results_sensitivity.append({
-                'Price_Change': price_mult,
+                'Price_Change': 1 + price_mult,
                 'Avg_G_Price': np.nan,
                 'A_G': current_input_data.A_G,
                 'A_L': current_input_data.A_L,
@@ -529,8 +525,7 @@ def run_production_sensitivity_analysis(input_data_base,sensitivity_type):
                 'Utility_L': contract_model.results.utility_L,
                 'ThreatPoint_G': contract_model.data.Zeta_G,
                 'ThreatPoint_L': contract_model.data.Zeta_L,
-                'Nash_Product': (contract_model.results.utility_G - contract_model.data.Zeta_G) * 
-                                (contract_model.results.utility_L - contract_model.data.Zeta_L)
+                'Nash_Product': contract_model.results.Nash_Product
             }
             
             # Add contract-type specific metrics
@@ -609,8 +604,7 @@ def run_load_capture_rate_sensitivity_analysis(input_data_base):
                 'Utility_L': contract_model.results.utility_L,
                 'ThreatPoint_G': contract_model.data.Zeta_G,
                 'ThreatPoint_L': contract_model.data.Zeta_L,
-                'Nash_Product': (contract_model.results.utility_G - contract_model.data.Zeta_G) * 
-                                (contract_model.results.utility_L - contract_model.data.Zeta_L)
+                'Nash_Product': contract_model.results.Nash_Product
             }
             
             # Add contract-type specific metrics
@@ -627,7 +621,7 @@ def run_load_capture_rate_sensitivity_analysis(input_data_base):
         except Exception as e:
             print(f"Error for capture rate multiplier={lr_mult}: {str(e)}")
             results_sensitivity.append({
-                'Load_CaptureRate_Change': lr_mult,
+                'Load_CaptureRate_Change': 1 + lr_mult,
                 'Avg_Load_Capture_Rate': np.nan,
                 'A_G': current_input_data.A_G,
                 'A_L': current_input_data.A_L,
@@ -690,8 +684,7 @@ def run_load_scenario_sensitivity_analysis(input_data_base,sensitivity_type):
                 'Utility_L': contract_model.results.utility_L,
                 'ThreatPoint_G': contract_model.data.Zeta_G,
                 'ThreatPoint_L': contract_model.data.Zeta_L,
-                'Nash_Product': (contract_model.results.utility_G - contract_model.data.Zeta_G) * 
-                                (contract_model.results.utility_L - contract_model.data.Zeta_L)
+                'Nash_Product': contract_model.results.Nash_Product
             }
             
             # Add contract-type specific metrics
@@ -729,259 +722,240 @@ def run_load_scenario_sensitivity_analysis(input_data_base,sensitivity_type):
 
     return results_df
 
+def run_elasticity_vs_risk_sensitivity_analysis(input_data_base, A_G_values, A_L_values):
+    """Run all factor sensitivity analyses across multiple A_L values for each fixed A_G.
+    Returns a long DataFrame with a 'Factor' label so plotting can compute local elasticities per (A_G, A_L, Factor).
+    """
+    print("\n--- Starting Elasticity-vs-Risk Sensitivity Analysis ---")
+    all_rows = []
+
+    # Helper to tag results with a Factor label and ensure required columns exist
+    def _tag(df: pd.DataFrame, factor_name: str) -> pd.DataFrame:
+        out = df.copy()
+        out['Factor'] = factor_name
+        return out
+
+    for a_g in tqdm(A_G_values, desc="Fixed A_G values"):
+        for a_l in tqdm(A_L_values, desc="Varying A_L values", leave=False):
+            current_input = copy.deepcopy(input_data_base)
+            current_input.A_G = float(a_g)
+            current_input.A_L = float(a_l)
+
+            try:
+                # Price sensitivity
+                df_price_mean = run_price_sensitivity_analysis(copy.deepcopy(current_input), sensitivity_type="mean")
+                df_price_mean = _tag(df_price_mean, 'Price Sensitivity (Mean)')
+
+                df_price_std = run_price_sensitivity_analysis(copy.deepcopy(current_input), sensitivity_type="std")
+                df_price_std = _tag(df_price_std, 'Price Sensitivity (Std)')
+
+                # Production sensitivity
+                df_prod_mean = run_production_sensitivity_analysis(copy.deepcopy(current_input), sensitivity_type="mean")
+                df_prod_mean = _tag(df_prod_mean, 'Production (Mean)')
+
+                df_prod_std = run_production_sensitivity_analysis(copy.deepcopy(current_input), sensitivity_type="std")
+                df_prod_std = _tag(df_prod_std, 'Production (Std)')
+
+                # Load scenario sensitivity
+                df_load_mean = run_load_scenario_sensitivity_analysis(copy.deepcopy(current_input), sensitivity_type="mean")
+                df_load_mean = _tag(df_load_mean, 'Load Sensitivity (Mean)')
+
+                df_load_std = run_load_scenario_sensitivity_analysis(copy.deepcopy(current_input), sensitivity_type="std")
+                df_load_std = _tag(df_load_std, 'Load Sensitivity (Std)')
+
+                # Capture rates
+                df_cr_gen = run_capture_rate_sensitivity_analysis(copy.deepcopy(current_input))
+                df_cr_gen = _tag(df_cr_gen, 'Prod. Capture Rate (Mean)')
+
+                df_cr_load = run_load_capture_rate_sensitivity_analysis(copy.deepcopy(current_input))
+                df_cr_load = _tag(df_cr_load, 'Load. Capture Rate (Mean)')
+
+                # Accumulate
+                all_rows.extend([
+                    df_price_mean, df_price_std,
+                    df_prod_mean, df_prod_std,
+                    df_load_mean, df_load_std,
+                    df_cr_gen, df_cr_load,
+                ])
+            except Exception as e:
+                print(f"Elasticity-vs-Risk block failed for A_G={a_g}, A_L={a_l}: {e}")
+                continue
+
+    if not all_rows:
+        return pd.DataFrame()
+
+    combined = pd.concat(all_rows, ignore_index=True, sort=False)
+    print("\n--- Elasticity-vs-Risk Sensitivity Analysis Complete ---")
+    return combined
+
 def run_no_contract_boundary_analysis_price(input_data_base):
+    """Compute feasibility masks on a 2D grid of price-bias factors and return for plotting/saving.
+    We classify strictly by solver feasibility (OPTIMAL vs INFEASIBLE/INF_OR_UNBD). No 1D bisection.
+    """
+    print("\n--- Infeasibility Boundary Analysis (Price Bias) ---")
 
-   # Define status codes - simplified since we're combining cases
-    NO_CONTRACT = 0.0  # Both infeasible and zero optimal contract cases
-
-    print("\n--- Starting No-Contract Boundary Analysis Price ---")
-
-    # Define risk aversion scenarios to test
     risk_aversion_scenarios = [
-        {'A_G': 0.1, 'A_L': 0.1, 'label': 'Lower Boundary for (A_G=0.1, A_L=0.1)', 'linestyle': '-', 'linewidth': 4, 'color': 'blue'},
-        {'A_G': 0.5, 'A_L': 0.5, 'label': 'Lower Boundary for (A_G=0.5, A_L=0.5)', 'linestyle': '-', 'linewidth': 2.5, 'color': 'green'},
-        {'A_G': 0.1, 'A_L': 0.5, 'label': 'Asymmetric (A_G=0.1, A_L=0.5)', 'linestyle': ':', 'linewidth': 2.0, 'color': 'red'},
-        {'A_G': 0.5, 'A_L': 0.1, 'label': 'Asymmetric (A_G=0.5, A_L=0.1)', 'linestyle': '-.', 'linewidth': 2.0, 'color': 'magenta'},
-        {'A_G': 0.9, 'A_L': 0.9, 'label': 'Lower Boundary for (A_G=0.9, A_L=0.9)', 'linestyle': '--', 'linewidth': 1.5, 'color': 'orange'},
-        #{'A_G': 1, 'A_L': 1, 'label': 'Lower Boundary for (A_G=1, A_L=1)', 'linestyle': '-.', 'linewidth': 1.5, 'color': 'yellow'},
-       
+        {'A_G': 0.1, 'A_L': 0.1, 'label': 'A_G=0.1, A_L=0.1', 'linestyle': '-',  'linewidth': 3.0, 'color': 'blue'},
+        {'A_G': 0.5, 'A_L': 0.5, 'label': 'A_G=0.5, A_L=0.5', 'linestyle': '-',  'linewidth': 2.5, 'color': 'green'},
+        {'A_G': 0.1, 'A_L': 0.5, 'label': 'A_G=0.1, A_L=0.5', 'linestyle': ':',  'linewidth': 2.0, 'color': 'red'},
+        {'A_G': 0.5, 'A_L': 0.1, 'label': 'A_G=0.5, A_L=0.1', 'linestyle': '-.', 'linewidth': 2.0, 'color': 'magenta'},
+        {'A_G': 0.9, 'A_L': 0.9, 'label': 'A_G=0.9, A_L=0.9', 'linestyle': '--', 'linewidth': 1.8, 'color': 'orange'},
     ]
 
-    # Define the grid of bias factors to test
-    KL_range = np.linspace(-30, 30, 6) / 100  # -30% to 30%
-    KG_range = np.linspace(-30, 30, 6) / 100  # -30% to 30%
+    # Finer grid for smoother contours
+    KL_range = np.linspace(-0.30, 0.30, 7)
+    KG_range = np.linspace(-0.30, 0.30, 7)
+    KL_grid, KG_grid = np.meshgrid(KL_range, KG_range)
 
-    # Store results for each risk aversion scenario
     all_results = []
 
-    # For each risk aversion scenario
     for scenario in risk_aversion_scenarios:
-        print(f"\nAnalyzing scenario: A_G={scenario['A_G']}, A_L={scenario['A_L']}")
-        
-        # Create grid to store contract amounts (combines infeasible and zero cases)
-        contract_grid = np.full((len(KG_range), len(KL_range)), np.nan)
-        
-        # Test each combination of KG and KL
-        for i, kg in enumerate(tqdm(KG_range, desc=f"Testing KG values for {scenario['label']}")):
-            for j, kl in enumerate(KL_range):
-                # Create a fresh copy of the input data
-                current_input_data = copy.deepcopy(input_data_base)
-                
-                # Set the risk aversion and bias parameters
-                current_input_data.A_G = scenario['A_G']
-                current_input_data.A_L = scenario['A_L']
-                current_input_data.K_G_price = kg
-                current_input_data.K_L_price = kl
+        print(f"Analyzing scenario: {scenario['label']}")
+        feas_mask = np.full_like(KL_grid, 0, dtype=float)  # 1=feasible, 0=infeasible, NaN=unknown
+        pos_contract_mask = np.zeros_like(KL_grid, dtype=float)  # 1=positive contract (optional info)
+
+        for i in tqdm(range(KG_grid.shape[0]), desc=f"KG grid {scenario['label']}"):
+            for j in range(KL_grid.shape[1]):
+                current = copy.deepcopy(input_data_base)
+                current.A_G = scenario['A_G']
+                current.A_L = scenario['A_L']
+                current.K_G_price = float(KG_grid[i, j])
+                current.K_L_price = float(KL_grid[i, j])
 
                 try:
-                    # Run the contract negotiation model
-                    contract_model = ContractNegotiation(current_input_data)
-                    contract_model.model.Params.FeasibilityTol = 1e-3
-                    contract_model.run()
-                    
-                    # Check the optimization status
-                    status = contract_model.model.Status
-                    
+                    cm = ContractNegotiation(current)
+                    cm.model.Params.OutputFlag = 0
+                    cm.model.Params.InfUnbdInfo = 0
+                    cm.model.Params.FeasibilityTol = 1e-6
+                    cm.run()
+
+                    status = cm.model.Status
                     if status == gp.GRB.OPTIMAL:
-                        # Optimal solution found
-                        contract_amount = contract_model.results.contract_amount
-                        if contract_amount < 1e-5:
-                            contract_grid[i, j] = 0.0  # Zero contract (feasible but no contracting)
-                        else:
-                            contract_grid[i, j] = contract_amount  # Positive contract
-                            
-                    elif status in [gp.GRB.INFEASIBLE, gp.GRB.INF_OR_UNBD]:
-                        # Problem is infeasible - treat as no contracting
-                        print(f"  Infeasible at KG={kg:.4f}, KL={kl:.4f}")
-                        contract_grid[i, j] = 0.0
-                        
-                    elif status in [gp.GRB.UNBOUNDED, gp.GRB.CUTOFF, gp.GRB.ITERATION_LIMIT, 
-                                gp.GRB.NODE_LIMIT, gp.GRB.TIME_LIMIT, gp.GRB.SOLUTION_LIMIT]:
-                        # Other solver issues - treat as no contracting
-                        print(f"  Solver issue at KG={kg:.4f}, KL={kl:.4f}: Status {status}")
-                        contract_grid[i, j] = 0.0
-                        
+                        feas_mask[i, j] = 1.0
+                        # Optional: mark positive-contract region
+                        try:
+                            ca = getattr(cm.results, 'contract_amount', getattr(cm.results, 'contract_amount_hour', 0.0))
+                            pos_contract_mask[i, j] = 1.0 if ca and ca > 1e-5 else 0.0
+                        except Exception:
+                            pos_contract_mask[i, j] = 0.0
+                    elif status in (gp.GRB.INFEASIBLE, gp.GRB.INF_OR_UNBD):
+                        feas_mask[i, j] = 0.0
                     else:
-                        # Unknown status - treat as no contracting
-                        print(f"  Unknown status at KG={kg:.4f}, KL={kl:.4f}: Status {status}")
-                        contract_grid[i, j] = 0.0
-                    
-                    del contract_model
-                    
-                except Exception as e:
-                    # Catch any other exceptions - treat as no contracting
-                    print(f"  Exception at KG={kg:.4f}, KL={kl:.4f}: {str(e)}")
-                    contract_grid[i, j] = 0.0
-        
-        # Find boundary points (transition from no-contract to positive contract)
-        boundary_points = []
-        
-        # Scan rows (fixed KG) to find boundary points
-        for i, kg in enumerate(KG_range):
-            for j in range(1, len(KL_range)):
-                if ((contract_grid[i, j-1] == 0.0 or np.isnan(contract_grid[i, j-1])) and 
-                    contract_grid[i, j] > 0) or \
-                (contract_grid[i, j-1] > 0 and 
-                    (contract_grid[i, j] == 0.0 or np.isnan(contract_grid[i, j]))):
-                    boundary_points.append((KL_range[j-1], kg))
-                    boundary_points.append((KL_range[j], kg))
-        
-        # Scan columns (fixed KL) to find boundary points
-        for j, kl in enumerate(KL_range):
-            for i in range(1, len(KG_range)):
-                if ((contract_grid[i-1, j] == 0.0 or np.isnan(contract_grid[i-1, j])) and 
-                    contract_grid[i, j] > 0) or \
-                (contract_grid[i-1, j] > 0 and 
-                    (contract_grid[i, j] == 0.0 or np.isnan(contract_grid[i, j]))):
-                    boundary_points.append((kl, KG_range[i-1]))
-                    boundary_points.append((kl, KG_range[i]))
-        
-        # Store the results for this scenario
+                        # Unknown/other solver statuses -> leave as NaN
+                        pass
+                except Exception:
+                    # Leave as NaN
+                    pass
+                finally:
+                    try:
+                        del cm
+                    except Exception:
+                        pass
+
         all_results.append({
             'scenario': scenario,
-            'contract_grid': contract_grid,
-            'boundary_points': boundary_points,  # Combined no-contract boundaries
+            'feas_mask': feas_mask,
+            'pos_contract_mask': pos_contract_mask,
+            'KL_grid': KL_grid,
+            'KG_grid': KG_grid,
+            # Back-compat fields (empty) if older plotting expects them
+            'contract_grid': np.full_like(KL_grid, np.nan, dtype=float),
+            'boundary_points': [],
             'KL_range': KL_range,
-            'KG_range': KG_range
+            'KG_range': KG_range,
         })
-        
-        # Print summary statistics
-        no_contract_count = np.sum(contract_grid == 0.0)
-        positive_contract_count = np.sum(contract_grid > 0)
-        error_count = np.sum(np.isnan(contract_grid))
-        total_points = len(KG_range) * len(KL_range)
-        
-        print(f"  Summary for {scenario['label']}:")
-        print(f"    No contract (zero/infeasible): {no_contract_count}/{total_points} ({no_contract_count/total_points*100:.1f}%)")
-        print(f"    Positive contracts: {positive_contract_count}/{total_points} ({positive_contract_count/total_points*100:.1f}%)")
-        print(f"    Errors/Untested: {error_count}/{total_points} ({error_count/total_points*100:.1f}%)")
+
+        # Quick summary
+        n_total = KL_grid.size
+        n_feas = int(np.nansum(feas_mask))
+        n_infeas = int(np.nansum(1 - feas_mask[np.isfinite(feas_mask)]))
+        n_nan = int(np.sum(~np.isfinite(feas_mask)))
+        print(f"  Feasible: {n_feas}/{n_total}, Infeasible: {n_infeas}/{n_total}, Unknown: {n_nan}/{n_total}")
 
     return all_results
 
 def run_no_contract_boundary_analysis_production(input_data_base):
+    """Compute feasibility masks on a 2D grid of production-bias factors and return for plotting/saving."""
+    print("\n--- Infeasibility Boundary Analysis (Production Bias) ---")
 
-    # Define status codes - simplified since we're combining cases
-    NO_CONTRACT = 0.0  # Both infeasible and zero optimal contract cases
-
-    print("\n--- Starting No-Contract Boundary Analysis Production ---")
-
-    # Define risk aversion scenarios to test
     risk_aversion_scenarios = [
-        {'A_G': 0.1, 'A_L': 0.1, 'label': 'Lower Boundary for (A_G=0.1, A_L=0.1)', 'linestyle': '-', 'linewidth': 4, 'color': 'blue'},
-        {'A_G': 0.5, 'A_L': 0.5, 'label': 'Lower Boundary for (A_G=0.5, A_L=0.5)', 'linestyle': '-', 'linewidth': 2.5, 'color': 'green'},
-        {'A_G': 0.9, 'A_L': 0.9, 'label': 'Lower Boundary for (A_G=0.9, A_L=0.9)', 'linestyle': '--', 'linewidth': 1.5, 'color': 'orange'},
-        {'A_G': 0.1, 'A_L': 0.5, 'label': 'Asymmetric (A_G=0.1, A_L=0.5)', 'linestyle': ':', 'linewidth': 2.0, 'color': 'red'},
-        {'A_G': 0.5, 'A_L': 0.1, 'label': 'Asymmetric (A_G=0.5, A_L=0.1)', 'linestyle': '-.', 'linewidth': 2.0, 'color': 'magenta'}
+        {'A_G': 0.1, 'A_L': 0.1, 'label': 'A_G=0.1, A_L=0.1', 'linestyle': '-',  'linewidth': 3.0, 'color': 'blue'},
+        {'A_G': 0.5, 'A_L': 0.5, 'label': 'A_G=0.5, A_L=0.5', 'linestyle': '-',  'linewidth': 2.5, 'color': 'green'},
+        {'A_G': 0.1, 'A_L': 0.5, 'label': 'A_G=0.1, A_L=0.5', 'linestyle': ':',  'linewidth': 2.0, 'color': 'red'},
+        {'A_G': 0.5, 'A_L': 0.1, 'label': 'A_G=0.5, A_L=0.1', 'linestyle': '-.', 'linewidth': 2.0, 'color': 'magenta'},
+        {'A_G': 0.9, 'A_L': 0.9, 'label': 'A_G=0.9, A_L=0.9', 'linestyle': '--', 'linewidth': 1.8, 'color': 'orange'},
     ]
 
-    # Define the grid of bias factors to test
-    KL_range = np.linspace(-25, 25, 5) / 100  # -25% to 25%
-    KG_range = np.linspace(-25, 25, 5) / 100  # -25% to 25%
+    KL_range = np.linspace(-0.3, 0.3, 7)
+    KG_range = np.linspace(-0.3, 0.3, 7)
+    KL_grid, KG_grid = np.meshgrid(KL_range, KG_range)
 
-    # Store results for each risk aversion scenario
     all_results = []
 
-    # For each risk aversion scenario
     for scenario in risk_aversion_scenarios:
-        print(f"\nAnalyzing scenario: A_G={scenario['A_G']}, A_L={scenario['A_L']}")
-        
-        # Create grid to store contract amounts (combines infeasible and zero cases)
-        contract_grid = np.full((len(KG_range), len(KL_range)), np.nan)
-        
-        # Test each combination of KG and KL
-        for i, kg in enumerate(tqdm(KG_range, desc=f"Testing KG values for {scenario['label']}")):
-            for j, kl in enumerate(KL_range):
-                # Create a fresh copy of the input data
-                current_input_data = copy.deepcopy(input_data_base)
-                
-                # Set the risk aversion and bias parameters
-                current_input_data.A_G = scenario['A_G']
-                current_input_data.A_L = scenario['A_L']
-                current_input_data.K_G_prod = kg
-                current_input_data.K_L_prod = kl
+        print(f"Analyzing scenario: {scenario['label']}")
+        feas_mask = np.full_like(KL_grid, np.nan, dtype=float)
+        pos_contract_mask = np.zeros_like(KL_grid, dtype=float)
+
+        for i in tqdm(range(KG_grid.shape[0]), desc=f"KG grid {scenario['label']}"):
+            for j in range(KL_grid.shape[1]):
+                current = copy.deepcopy(input_data_base)
+                current.A_G = scenario['A_G']
+                current.A_L = scenario['A_L']
+                current.K_G_prod = float(KG_grid[i, j])
+                current.K_L_prod = float(KL_grid[i, j])
 
                 try:
-                    # Run the contract negotiation model
-                    contract_model = ContractNegotiation(current_input_data)
-                    contract_model.model.Params.FeasibilityTol = 1e-3
-                    contract_model.run()
-                    
-                    # Check the optimization status
-                    status = contract_model.model.Status
-                    
+                    cm = ContractNegotiation(current)
+                    # Align key solver parameters with price-boundary analysis
+                    cm.model.Params.OutputFlag = 0
+                    cm.model.Params.InfUnbdInfo = 1
+                    cm.model.Params.FeasibilityTol = 1e-6
+                    try:
+                        cm.model.Params.NonConvex = 2
+                    except Exception:
+                        pass
+                    cm.run()
+
+                    status = cm.model.Status
                     if status == gp.GRB.OPTIMAL:
-                        # Optimal solution found
-                        contract_amount = contract_model.results.contract_amount
-                        if contract_amount < 1e-5:
-                            contract_grid[i, j] = 0.0  # Zero contract (feasible but no contracting)
-                        else:
-                            contract_grid[i, j] = contract_amount  # Positive contract
-                            
-                    elif status in [gp.GRB.INFEASIBLE, gp.GRB.INF_OR_UNBD]:
-                        # Problem is infeasible - treat as no contracting
-                        print(f"  Infeasible at KG={kg:.4f}, KL={kl:.4f}")
-                        contract_grid[i, j] = 0.0
-                        
-                    elif status in [gp.GRB.UNBOUNDED, gp.GRB.CUTOFF, gp.GRB.ITERATION_LIMIT, 
-                                gp.GRB.NODE_LIMIT, gp.GRB.TIME_LIMIT, gp.GRB.SOLUTION_LIMIT]:
-                        # Other solver issues - treat as no contracting
-                        print(f"  Solver issue at KG={kg:.4f}, KL={kl:.4f}: Status {status}")
-                        contract_grid[i, j] = 0.0
-                        
+                        feas_mask[i, j] = 1.0
+                        try:
+                            ca = getattr(cm.results, 'contract_amount', getattr(cm.results, 'contract_amount_hour', 0.0))
+                            pos_contract_mask[i, j] = 1.0 if ca and ca > 1e-5 else 0.0
+                        except Exception:
+                            pos_contract_mask[i, j] = 0.0
+                    elif status in (gp.GRB.INFEASIBLE, gp.GRB.INF_OR_UNBD):
+                        feas_mask[i, j] = 0.0
                     else:
-                        # Unknown status - treat as no contracting
-                        print(f"  Unknown status at KG={kg:.4f}, KL={kl:.4f}: Status {status}")
-                        contract_grid[i, j] = 0.0
-                    
-                    del contract_model
-                    
-                except Exception as e:
-                    # Catch any other exceptions - treat as no contracting
-                    print(f"  Exception at KG={kg:.4f}, KL={kl:.4f}: {str(e)}")
-                    contract_grid[i, j] = 0.0
-        
-        # Find boundary points (transition from no-contract to positive contract)
-        boundary_points = []
-        
-        # Scan rows (fixed KG) to find boundary points
-        for i, kg in enumerate(KG_range):
-            for j in range(1, len(KL_range)):
-                if ((contract_grid[i, j-1] == 0.0 or np.isnan(contract_grid[i, j-1])) and 
-                    contract_grid[i, j] > 0) or \
-                (contract_grid[i, j-1] > 0 and 
-                    (contract_grid[i, j] == 0.0 or np.isnan(contract_grid[i, j]))):
-                    boundary_points.append((KL_range[j-1], kg))
-                    boundary_points.append((KL_range[j], kg))
-        
-        # Scan columns (fixed KL) to find boundary points
-        for j, kl in enumerate(KL_range):
-            for i in range(1, len(KG_range)):
-                if ((contract_grid[i-1, j] == 0.0 or np.isnan(contract_grid[i-1, j])) and 
-                    contract_grid[i, j] > 0) or \
-                (contract_grid[i-1, j] > 0 and 
-                    (contract_grid[i, j] == 0.0 or np.isnan(contract_grid[i, j]))):
-                    boundary_points.append((kl, KG_range[i-1]))
-                    boundary_points.append((kl, KG_range[i]))
-        
-        # Store the results for this scenario
+                        pass
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        del cm
+                    except Exception:
+                        pass
+
         all_results.append({
             'scenario': scenario,
-            'contract_grid': contract_grid,
-            'boundary_points': boundary_points,  # Combined no-contract boundaries
+            'feas_mask': feas_mask,
+            'pos_contract_mask': pos_contract_mask,
+            'KL_grid': KL_grid,
+            'KG_grid': KG_grid,
+            'contract_grid': np.full_like(KL_grid, np.nan, dtype=float),
+            'boundary_points': [],
             'KL_range': KL_range,
-            'KG_range': KG_range
+            'KG_range': KG_range,
         })
-        
-        # Print summary statistics
-        no_contract_count = np.sum(contract_grid == 0.0)
-        positive_contract_count = np.sum(contract_grid > 0)
-        error_count = np.sum(np.isnan(contract_grid))
-        total_points = len(KG_range) * len(KL_range)
-        
-        print(f"  Summary for {scenario['label']}:")
-        print(f"    No contract (zero/infeasible): {no_contract_count}/{total_points} ({no_contract_count/total_points*100:.1f}%)")
-        print(f"    Positive contracts: {positive_contract_count}/{total_points} ({positive_contract_count/total_points*100:.1f}%)")
-        print(f"    Errors/Untested: {error_count}/{total_points} ({error_count/total_points*100:.1f}%)")
+
+        n_total = KL_grid.size
+        n_feas = int(np.nansum(feas_mask))
+        n_infeas = int(np.nansum(1 - feas_mask[np.isfinite(feas_mask)]))
+        n_nan = int(np.sum(~np.isfinite(feas_mask)))
+        print(f"  Feasible: {n_feas}/{n_total}, Infeasible: {n_infeas}/{n_total}, Unknown: {n_nan}/{n_total}")
+
+    return all_results
 
 def run_negotiation_power_sensitivity_analysis(input_data_base, tau_G_values, tau_L_values):
     """Runs the ContractNegotiation for different combinations of tau G and tau L."""
@@ -1010,7 +984,7 @@ def run_negotiation_power_sensitivity_analysis(input_data_base, tau_G_values, ta
                 'Utility_G': contract_model.results.utility_G,
                 'Utility_L': contract_model.results.utility_L,
                 'NashProductLog': contract_model.results.objective_value,
-                'Nash_Product': np.exp(contract_model.results.objective_value),
+                'Nash_Product': contract_model.results.Nash_Product,
                 'ThreatPoint_G': contract_model.data.Zeta_G,
                 'ThreatPoint_L': contract_model.data.Zeta_L,
             }
@@ -1115,8 +1089,7 @@ def run_load_generation_ratio_sensitivity_analysis(input_data_base):
                 'Utility_L': contract_model.results.utility_L,
                 'ThreatPoint_G': contract_model.data.Zeta_G,
                 'ThreatPoint_L': contract_model.data.Zeta_L,
-                'Nash_Product': (contract_model.results.utility_G - contract_model.data.Zeta_G) * 
-                                (contract_model.results.utility_L - contract_model.data.Zeta_L)
+                'Nash_Product': contract_model.results.Nash_Product
             }
             if hasattr(current_input_data, 'contract_type'):
                 if current_input_data.contract_type == "PAP":
@@ -1145,6 +1118,85 @@ def run_load_generation_ratio_sensitivity_analysis(input_data_base):
     return results_df
 
 
+def run_negotiation_power_vs_risk_sensitivity_analysis(
+    input_data_base,
+    A_G_values,
+    A_L_values,
+    tau_L_values
+):
+    """
+    Sweep negotiation power across multiple risk-aversion pairs.
+
+    For each (A_G, A_L) pair and each tau_L in tau_L_values (with tau_G = 1 - tau_L),
+    run the ContractNegotiation and collect StrikePrice, ContractAmount, utilities, and Nash product.
+
+    Returns a tidy DataFrame with columns:
+      [A_G, A_L, tau_G, tau_L, StrikePrice, ContractAmount, Utility_G, Utility_L,
+       NashProductLog, Nash_Product, ThreatPoint_G, ThreatPoint_L, (Gamma if PAP)]
+    """
+    print("\n--- Starting Negotiation Power vs Risk-Aversion Sensitivity ---")
+    results_list = []
+
+    # Defensive copy of inputs to lists for iteration
+    tau_L_values = np.array(tau_L_values)
+
+    for a_G in tqdm(A_G_values, desc="A_G grid"):
+        for a_L in tqdm(A_L_values, desc="A_L grid", leave=False):
+            for tau_L in tau_L_values:
+                tau_G = 1.0 - tau_L
+                current = copy.deepcopy(input_data_base)
+                current.A_G = a_G
+                current.A_L = a_L
+                current.tau_L = tau_L
+                current.tau_G = tau_G
+
+                try:
+                    model = ContractNegotiation(current)
+                    model.run()
+
+                    rec = {
+                        'A_G': a_G,
+                        'A_L': a_L,
+                        'tau_G': tau_G,
+                        'tau_L': tau_L,
+                        'StrikePrice': model.results.strike_price,
+                        'ContractAmount': getattr(model.results, 'contract_amount_hour', getattr(model.results, 'contract_amount', np.nan)),
+                        'Utility_G': model.results.utility_G,
+                        'Utility_L': model.results.utility_L,
+                        'NashProductLog': model.results.objective_value,
+                        'Nash_Product': model.results.Nash_Product,
+                        'ThreatPoint_G': model.data.Zeta_G,
+                        'ThreatPoint_L': model.data.Zeta_L,
+                    }
+                    if hasattr(current, 'contract_type') and current.contract_type == "PAP":
+                        if hasattr(model.results, 'gamma'):
+                            rec['Gamma'] = model.results.gamma
+                    results_list.append(rec)
+                except Exception as e:
+                    print(f"Error for A_G={a_G}, A_L={a_L}, tau_L={tau_L}: {e}")
+                    results_list.append({
+                        'A_G': a_G,
+                        'A_L': a_L,
+                        'tau_G': tau_G,
+                        'tau_L': tau_L,
+                        'StrikePrice': np.nan,
+                        'ContractAmount': np.nan,
+                        'Utility_G': np.nan,
+                        'Utility_L': np.nan,
+                        'NashProductLog': np.nan,
+                        'Nash_Product': np.nan,
+                        'ThreatPoint_G': np.nan,
+                        'ThreatPoint_L': np.nan,
+                    })
+                finally:
+                    try:
+                        del model
+                    except Exception:
+                        pass
+
+    results_df = pd.DataFrame(results_list)
+    print("\n--- Negotiation Power vs Risk-Aversion Sensitivity Complete ---")
+    return results_df
 
 ############## Unncessary Sensitivity Analysis Functions ##############
 

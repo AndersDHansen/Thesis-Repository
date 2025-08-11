@@ -504,9 +504,9 @@ def run_scenarios(
 if __name__ == "__main__":
     # Example usage
     years = 20  # 5 years
-    num_scenarios = 2000  # Reduced from 50000 for faster computation
+    num_scenarios = 100000  # Reduced from 50000 for faster computation
     global monte_price
-    monte_price = True
+    monte_price = False
 
     # Wind Profile 
     csv_wind = "Code/Data/Wind/combined_wind_data.csv"  # adjust path if needed
