@@ -838,7 +838,7 @@ class ContractNegotiation:
         if self.model.status == GRB.OPTIMAL:
             self._save_results()
             #self.scipy_optimization()
-            self.display_results()
+           # self.display_results()
             #self.scipy_display_results()
 
             if self.data.Barter == True:
@@ -847,7 +847,7 @@ class ContractNegotiation:
                 A_L_values = [0.1,0.5,0.9]
                 A_G_values = [0.1,0.9]
 
-                BS.plot_multiple_barter_sets(A_G_values, A_L_values)
+                #BS.plot_multiple_barter_sets(A_G_values, A_L_values)
                 #self.manual_optimization(plot=True)
                 #self.batch_manual_optimization(A_G_values= [0.0,0.5,0.9],A_L_values=[0.0])
               

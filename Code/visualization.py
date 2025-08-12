@@ -30,7 +30,7 @@ class Plotting_Class:
                  load_sensitivity_mean_df, load_sensitivity_std_df,
                  gen_CR_sensitivity_df, load_CR_sensitivity_df,
                  boundary_results_df_price, boundary_results_df_production, negotiation_sensitivity_df,negotiation_earnings_df,
-                 load_ratio_df,
+                 negotiation_vs_risk_df,elasticity_vs_risk_df , bias_risk_elasticity_df,
                  styles=None):
         
         self.cm_data = contract_model_data
@@ -52,8 +52,10 @@ class Plotting_Class:
         self.boundary_results_production = boundary_results_df_production
         self.negotiation_sensitivity_df = negotiation_sensitivity_df
         self.negotiation_earnings_df = negotiation_earnings_df
-        self.load_ratio_df = load_ratio_df
-        # plotting styless
+        self.negotiation_vs_risk_df = negotiation_vs_risk_df
+        self.elasticity_vs_risk_df = elasticity_vs_risk_df
+        self.bias_risk_elasticity_df = bias_risk_elasticity_df
+        # plotting styles
         self.legendsize = 12
         self.labelsize = 16
         self.titlesize = 17
@@ -130,13 +132,15 @@ class Plotting_Class:
             idx = max(0, min(idx, len(canonical)-1))
         return pal[idx]
 
-    def _plot_negotiation_vs_risk(self, df, metric='StrikePrice', filename=None):
+    def _plot_negotiation_vs_risk(self, metric='StrikePrice', filename=None):
         """
         Plot metric vs tau_L for multiple (A_G, A_L) pairs.
 
         - Color encodes the (A_G, A_L) pair using a palette.
         - Lines are drawn across tau_L; optional secondary axis for Gamma if PAP and metric is ContractAmount.
         """
+
+        df = self.negotiation_vs_risk_df
         if df is None or df.empty:
             print("No data provided for negotiation vs risk plot.")
             return
@@ -198,12 +202,15 @@ class Plotting_Class:
             if m == 'StrikePrice':
                 ref = (self.cm_data.Capture_price_G_avg if is_pap else self.cm_data.expected_price) * 1e3
                 ax.axhline(ref, color='black', linestyle='--', label='Reference price')
+                ax.set_ylabel("Price (EUR/MWh)", fontsize=self.labelsize)
             elif m == 'ContractAmount' and not is_pap:
                 ref = self.cm_data.expected_production / 8760 * 1000
-                ax.axhline(ref, color='black', linestyle='--', label='Expected production (MW)')
+                ax.axhline(ref, color='black', linestyle='--', label='Expected production (MWh)')
+                ax.set_ylabel("Contract Amount (MWh)", fontsize=self.labelsize)
 
             # Secondary axis for Gamma in PAP on ContractAmount
             if m == 'ContractAmount' and is_pap and has_gamma:
+                ax.set_ylabel("Contract Amount (MW)", fontsize=self.labelsize)
                 ax2 = ax.twinx()
                 for pair in pairs:
                     a_g, a_l = pair
@@ -217,8 +224,9 @@ class Plotting_Class:
                     marker = 'o' if is_mid else 'none'
                     ax2.plot(sub['tau_L'], sub['Gamma'] * 100, linestyle='--', linewidth=lw,
                              color=color_map[(a_g, a_l)], alpha=0.6, zorder=z, markeredgecolor=edge_color, marker=marker)
-                ax2.set_ylabel('Gamma (%)', color='gray', fontsize=self.labelsize)
+                ax2.set_ylabel('$\\gamma$ share of production capacity', color='gray', fontsize=self.labelsize-2)
                 ax2.tick_params(axis='y', labelcolor='gray')
+
 
             ax.set_xlabel('Load Negotiation Power $\\tau_L$', fontsize=self.labelsize)
             ax.set_title(title, fontsize=self.titlesize)
@@ -1128,7 +1136,7 @@ class Plotting_Class:
         filename : str, optional
             Path to save the plot. If None, the plot will be displayed.
         """
-        plt.figure(figsize=(10, 8))
+        plt.figure(figsize=(12, 8))
         xlim = (-31, 31)
         ylim = (-31, 31)
 
@@ -1207,7 +1215,7 @@ class Plotting_Class:
         elif sensitivity_type == "production":
             plt.xlabel(r'Load production bias $K^L$ (% of $\mathbb{E}[\mathcal{P}^G]$)', fontsize=self.labelsize)
             plt.ylabel(r'Generator production bias $K^G$ (% of $\mathbb{E}[\mathcal{P}^G]$)', fontsize=self.labelsize)
-        plt.title(f'{self.cm_data.contract_type}-{sensitivity_type}: No-Contract Boundaries for Different Risk Aversion Levels', fontsize=self.titlesize)
+        plt.title(f'{self.cm_data.contract_type}-{sensitivity_type}: Contract Boundaries for Different Risk Aversion Levels', fontsize=self.titlesize)
         plt.grid(True, alpha=0.3)
         plt.legend(loc="upper left")
         plt.axhline(y=0, color='k', linewidth=2)
@@ -1326,7 +1334,7 @@ class Plotting_Class:
         plt.tight_layout()
         plt.subplots_adjust(top=0.92)
 
-        fig.suptitle(f'{self.cm_data.contract_type}-{sensitivity_type}: No-Contract Boundaries', fontsize=self.suptitlesize)
+        fig.suptitle(f'{self.cm_data.contract_type}-{sensitivity_type}: Contract Boundaries', fontsize=self.suptitlesize)
 
         if filename:
             plt.savefig(filename, dpi=300, bbox_inches='tight')
@@ -2245,48 +2253,127 @@ class Plotting_Class:
         # Delete unused
 
     def _plot_elasticity_tornado_vs_risk(self,
-                                         df: pd.DataFrame,
+                                         bias = False,
                                          fixed_A_G_values=None,
                                          fixed_A_L_values=None,
                                          metrics=['StrikePrice'],
-                                         filename_prefix=None,
+                                         filename=None,
                                          fix: str = 'A_G'):
-        """Grouped tornado bars by factor across the other party's risk values.
-        Modes:
-        - fix='A_G': fix A_G (provide fixed_A_G_values), group bars by A_L (legend A_L), one figure per A_G per metric.
-        - fix='A_L': fix A_L (provide fixed_A_L_values), group bars by A_G (legend A_G), one figure per A_L per metric.
-        Expects df from run_elasticity_vs_risk_sensitivity_analysis with a 'Factor' column and multiplicative X columns.
         """
-        if df is None or df.empty:
-            print("No data for elasticity_vs_risk plotting.")
-            return
+        Plot grouped tornado bars (elasticities) for each metric across risk aversion combinations,
+        computing elasticities with a log-log regression:
 
-        # Factor -> x-column mapping
-        factor_xcol = {
-            'Production \n (Expected)': 'Production_Change',
-            'Production (Std)': 'Production_Change',
-            'Price Sensitivity \n(Expected)': 'Price_Change',
-            'Price Sensitivity (Std)': 'Price_Change',
-            'Load Sensitivity \n(Expected)': 'Load_Change',
-            'Load Sensitivity (Std)': 'Load_Change',
-            'Prod. Capture Rate \n(Expected)': 'CaptureRate_Change',
-            'Load. Capture Rate\n (Expected)': 'Load_CaptureRate_Change',
-        }
+            log(metric) = a + b * log(factor)  ->  elasticity = b
 
-        # Order of factors for plotting
-        factor_order = [
-            'Prod. Capture Rate \n(Expected)',
-            'Price Sensitivity \n(Expected)',
-            'Production \n(Expected)',
-            'Production (Std)',
-            'Price Sensitivity (Std)',
-            'Load Sensitivity \n(Expected)',
-            'Load. Capture Rate \n(Expected)',
-            'Load Sensitivity (Std)',
-        ]
+        Parameters
+        ----------
+        df : DataFrame
+            Must contain columns:
+              - 'Factor' (categorical factor name, matching keys in factor_xcol mapping)
+              - risk aversion columns 'A_G', 'A_L'
+              - per-factor multiplicative change columns (e.g. 'Production_Change', 'Price_Change', etc.)
+              - metric columns (e.g. 'StrikePrice', 'ContractAmount', 'Utility_G', ...)
+        fixed_A_G_values : list[float] | None
+            Values of A_G to fix when fix='A_G'
+        fixed_A_L_values : list[float] | None
+            Values of A_L to fix when fix='A_L'
+        metrics : list[str]
+            Metrics for which elasticities are plotted.
+        filename_prefix : str | None
+            If provided, each figure is saved as <prefix>_<metric>_AG=<val>.png or ..._AL=<val>.png
+        fix : {'A_G','A_L'}
+            Which party's risk aversion to hold fixed while grouping bars by the other party.
+        Notes
+        -----
+        - Uses only rows with strictly positive factor values AND strictly positive metric values
+          (log-log requires > 0).
+        - If fewer than 2 valid points for a (factor, risk) block -> NaN elasticity.
+        - The elasticity from log-log OLS is an average (global over the provided variation),
+          not a strictly local (point) elasticity.
+        """
 
-        baseline = 1.0
-    # We'll size the palette dynamically later based on the number of groups per figure
+      
+        
+        if bias == False:
+
+            df = self.elasticity_vs_risk_df
+
+            if df is None or df.empty:
+                print("No data for elasticity_vs_risk plotting.")
+                return
+
+            # Map displayed factor label -> underlying factor change column
+            factor_xcol = {
+                'Production (Expected)': 'Production_Change',
+                'Production (Std)': 'Production_Change',
+                'Price Sensitivity (Expected)': 'Price_Change',
+                'Price Sensitivity (Std)': 'Price_Change',
+                'Load Sensitivity (Expected)': 'Load_Change',
+                'Load Sensitivity (Std)': 'Load_Change',
+                'Prod. Capture Rate (Expected)': 'CaptureRate_Change',
+                'Load. Capture Rate (Expected)': 'Load_CaptureRate_Change',
+            }
+
+            factor_order = [
+                'Prod. Capture Rate (Expected)',
+                'Price Sensitivity (Expected)',
+                'Production (Expected)',
+                'Production (Std)',
+                'Price Sensitivity (Std)',
+                'Load Sensitivity (Expected)',
+                'Load. Capture Rate (Expected)',
+                'Load Sensitivity (Std)',
+            ]
+        else:
+
+            df = self.bias_risk_elasticity_df
+
+            df['KG_Factor'] = 1.0 + df['KG_Factor']
+            df['KL_Factor'] = 1.0 + df['KL_Factor']
+
+            price_bias_KG = df[df['KL_Factor'] == 1.00]
+            price_bias_KL = df[df['KG_Factor'] == 1.00]
+
+            df = pd.concat([price_bias_KG, price_bias_KL], ignore_index=True)
+
+            factor_xcol = {
+                'Price Bias': 'KG_Factor',
+                'Price Bias': 'KL_Factor',
+                'Production Bias': 'KG_Factor',
+                'Production Bias': 'KL_Factor',
+            }
+
+            factor_order = [
+                'Price Bias',
+                'Price Bias',
+                'Production Bias',
+                'Production Bias',
+            ]
+           
+           
+        
+        def _loglog_elasticity(block: pd.DataFrame, factor_col: str, metric_col: str) -> float | None:
+            """
+            Return slope of log(metric) vs log(factor) for the block (elasticity).
+            Requires >= 2 positive finite observations for both.
+            """
+            if block is None or block.empty or factor_col not in block.columns or metric_col not in block.columns:
+                return np.nan
+            x_raw = pd.to_numeric(block[factor_col], errors='coerce')
+            y_raw = pd.to_numeric(block[metric_col], errors='coerce')
+            mask = (x_raw > 0) & (y_raw > 0) & np.isfinite(x_raw) & np.isfinite(y_raw)
+            if mask.sum() < 2:
+                return np.nan
+            lx = np.log(x_raw[mask].values)
+            ly = np.log(y_raw[mask].values)
+            # Guard against zero variance
+            if np.allclose(lx, lx[0]) or np.allclose(ly, ly[0]):
+                return np.nan
+            slope = np.polyfit(lx, ly, 1)[0]
+            # Clean near-zero numerical noise
+            if np.isfinite(slope) and abs(slope) < 1e-9:
+                slope = 0.0
+            return float(slope) if np.isfinite(slope) else np.nan
 
         for metric in metrics:
             if fix == 'A_G':
@@ -2299,57 +2386,60 @@ class Plotting_Class:
                         print(f"Warning: No rows for A_G={ag} in elasticity_vs_risk df.")
                         continue
                     var_values = sorted(sub['A_L'].dropna().unique().tolist())
-                    # Compute elasticity matrix: rows=factors, cols=A_L
-                    data = {al: [] for al in var_values}
                     present_factors = [f for f in factor_order if f in sub['Factor'].unique()]
                     if not present_factors:
                         print(f"No recognized factors for A_G={ag}")
                         continue
+
+                    # rows = factors, cols = varying A_L
+                    data = {al: [] for al in var_values}
                     for factor in present_factors:
-                        xcol = factor_xcol.get(factor)
+                        fcol = factor_xcol.get(factor)
                         for al in var_values:
-                            block = sub[(sub['Factor'] == factor) & (sub['A_L'].round(3) == round(al, 3))]
-                            val = self._safe_local_elasticity_single(block, factor_col=xcol, metric_col=metric, baseline=baseline)
-                            if val is not None and np.isfinite(val) and abs(val) < 1e-6:
-                                val = 0.0
-                            data[al].append(np.nan if val is None or not np.isfinite(val) else float(val))
+                            block = sub[(sub['Factor'] == factor) &
+                                        (sub['A_L'].round(3) == round(al, 3))]
+                            val = _loglog_elasticity(block, fcol, metric) if fcol else np.nan
+                            data[al].append(val if np.isfinite(val) else np.nan)
 
                     plot_df = pd.DataFrame(data, index=present_factors)
-                    # Drop groups (columns) that are entirely NaN to avoid empty legend entries
                     valid_cols = [c for c in plot_df.columns if np.isfinite(plot_df[c].values).any()]
                     if not valid_cols:
-                        print(f"No valid elasticity values for A_G={ag} across any A_L.")
+                        print(f"No valid elasticities (log-log) for A_G={ag} across any A_L.")
                         continue
                     plot_df = plot_df[valid_cols]
 
-                    # Plot grouped horizontal bars
+                    # Plot
                     n_factors = len(present_factors)
                     n_groups = len(valid_cols)
                     bar_h = 0.8 / max(1, n_groups)
                     y_positions = np.arange(n_factors)
 
-                    fig, ax = plt.subplots(figsize=(10, 0.6 * n_factors + 2))
+                    fig, ax = plt.subplots(figsize=(8.5, 0.5 * n_factors + 2))
                     for i, al in enumerate(valid_cols):
                         vals = plot_df[al].values
                         color = self._color_for_risk(al, kind='A_L')
-                        ax.barh(y_positions + (i - (n_groups-1)/2) * bar_h, vals, height=bar_h, color=color, label=f"A_L={al}")
+                        ax.barh(y_positions + (i - (n_groups - 1)/2) * bar_h,
+                                vals, height=bar_h, color=color, label=f"A_L={al}")
 
                     ax.axvline(0.0, color='k', linewidth=1)
                     ax.set_yticks(y_positions)
                     ax.set_yticklabels([f"{f}" for f in present_factors], fontsize=self.legendsize)
                     ax.set_xlabel(f"Elasticity of ${metric}$", fontsize=self.labelsize)
-                    ax.set_title(f"Parameter Sensitivity {self.cm_data.contract_type}, A_G={ag}", fontsize=self.titlesize)
+                    ax.set_title(f"Parameter Sensitivity {self.cm_data.contract_type}, A_G={ag}",
+                                 fontsize=self.titlesize)
                     ax.grid(axis='x', linestyle=':', alpha=0.6)
-                    ax.legend( fontsize=self.legendsize-1, title_fontsize=self.legendsize-1, ncol=min(3, n_groups))
+                    ax.legend(fontsize=self.legendsize-1, title_fontsize=self.legendsize-1,
+                              ncol=min(3, n_groups))
 
                     plt.tight_layout()
-                    if filename_prefix:
-                        fname = f"{filename_prefix}_{metric}_AG={ag}.png"
+                    if filename:
+                        fname = f"{filename}_{metric}.png"
                         plt.savefig(fname, bbox_inches='tight', dpi=300)
-                        print(f"Saved elasticity-vs-risk tornado: {fname}")
+                        print(f"Saved log-log elasticity-vs-risk tornado: {fname}")
                         plt.close(fig)
                     else:
                         plt.show()
+
             elif fix == 'A_L':
                 if not fixed_A_L_values:
                     print("No fixed_A_L_values provided for fix='A_L'.")
@@ -2360,61 +2450,60 @@ class Plotting_Class:
                         print(f"Warning: No rows for A_L={al} in elasticity_vs_risk df.")
                         continue
                     var_values = sorted(sub['A_G'].dropna().unique().tolist())
-                    # Compute elasticity matrix: rows=factors, cols=A_G
-                    data = {ag: [] for ag in var_values}
                     present_factors = [f for f in factor_order if f in sub['Factor'].unique()]
                     if not present_factors:
                         print(f"No recognized factors for A_L={al}")
                         continue
+
+                    data = {ag: [] for ag in var_values}
                     for factor in present_factors:
-                        xcol = factor_xcol.get(factor)
+                        fcol = factor_xcol.get(factor)
                         for ag in var_values:
-                            block = sub[(sub['Factor'] == factor) & (sub['A_G'].round(3) == round(ag, 3))]
-                            val = self._safe_local_elasticity_single(block, factor_col=xcol, metric_col=metric, baseline=baseline)
-                            if val is not None and np.isfinite(val) and abs(val) < 1e-6:
-                                val = 0.0
-                            data[ag].append(np.nan if val is None or not np.isfinite(val) else float(val))
+                            block = sub[(sub['Factor'] == factor) &
+                                        (sub['A_G'].round(3) == round(ag, 3))]
+                            val = _loglog_elasticity(block, fcol, metric) if fcol else np.nan
+                            data[ag].append(val if np.isfinite(val) else np.nan)
 
                     plot_df = pd.DataFrame(data, index=present_factors)
-                    # Drop groups (columns) that are entirely NaN to avoid empty legend entries
                     valid_cols = [c for c in plot_df.columns if np.isfinite(plot_df[c].values).any()]
                     if not valid_cols:
-                        print(f"No valid elasticity values for A_L={al} across any A_G.")
+                        print(f"No valid elasticities (log-log) for A_L={al} across any A_G.")
                         continue
                     plot_df = plot_df[valid_cols]
 
-                    # Plot grouped horizontal bars
                     n_factors = len(present_factors)
                     n_groups = len(valid_cols)
                     bar_h = 0.8 / max(1, n_groups)
                     y_positions = np.arange(n_factors)
 
-                    fig, ax = plt.subplots(figsize=(10, 0.6 * n_factors + 2))
+                    fig, ax = plt.subplots(figsize=(8.5, 0.5 * n_factors + 2))
                     for i, ag in enumerate(valid_cols):
                         vals = plot_df[ag].values
                         color = self._color_for_risk(ag, kind='A_G')
-                        ax.barh(y_positions + (i - (n_groups-1)/2) * bar_h, vals, height=bar_h, color=color, label=f"A_G={ag}")
+                        ax.barh(y_positions + (i - (n_groups - 1)/2) * bar_h,
+                                vals, height=bar_h, color=color, label=f"A_G={ag}")
 
                     ax.axvline(0.0, color='k', linewidth=1)
                     ax.set_yticks(y_positions)
                     ax.set_yticklabels([f"{f}" for f in present_factors], fontsize=self.legendsize)
                     ax.set_xlabel(f"Elasticity of ${metric}$", fontsize=self.labelsize)
-                    ax.set_title(f"Parameter Sensitivity {self.cm_data.contract_type}, $A_L$={al}", fontsize=self.titlesize)
+                    ax.set_title(f"Parameter Sensitivity {self.cm_data.contract_type}, A_L={al}",
+                                 fontsize=self.titlesize)
                     ax.grid(axis='x', linestyle=':', alpha=0.6)
-                    ax.legend( fontsize=self.legendsize-1, title_fontsize=self.legendsize-1, ncol=min(3, n_groups))
+                    ax.legend(fontsize=self.legendsize-1, title_fontsize=self.legendsize-1,
+                              ncol=min(3, n_groups))
 
                     plt.tight_layout()
-                    if filename_prefix:
-                        fname = f"{filename_prefix}_{metric}_AL={al}.png"
+                    if filename:
+                        fname = f"{filename}_{metric}_.png"
                         plt.savefig(fname, bbox_inches='tight', dpi=300)
-                        print(f"Saved elasticity-vs-risk tornado: {fname}")
+                        print(f"Saved log-log elasticity-vs-risk tornado: {fname}")
                         plt.close(fig)
                     else:
                         plt.show()
             else:
                 print("Invalid fix mode. Use fix='A_G' or fix='A_L'.")
         
-
     def _plot_nash_product_evolution(self, filename=None):
         """
         Plot how Nash Product changes across different sensitivity analyses.
@@ -2563,6 +2652,7 @@ class Plotting_Class:
             plt.show()
 
     def _plot_disagreement_points(self,filename=None):
+
         """
         Plot the disagreement points for different risk aversion levels.
         This is crucial for understanding the negotiation dynamics and potential outcomes.
@@ -2608,3 +2698,4 @@ class Plotting_Class:
             plt.close(fig)
         else:
             plt.show()
+

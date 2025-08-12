@@ -744,31 +744,31 @@ def run_elasticity_vs_risk_sensitivity_analysis(input_data_base, A_G_values, A_L
             try:
                 # Price sensitivity
                 df_price_mean = run_price_sensitivity_analysis(copy.deepcopy(current_input), sensitivity_type="mean")
-                df_price_mean = _tag(df_price_mean, 'Price Sensitivity (Mean)')
+                df_price_mean = _tag(df_price_mean, 'Price Sensitivity (Expected)')
 
                 df_price_std = run_price_sensitivity_analysis(copy.deepcopy(current_input), sensitivity_type="std")
-                df_price_std = _tag(df_price_std, 'Price Sensitivity (Std)')
+                df_price_std = _tag(df_price_std, 'Price Sensitivity (Expected)')
 
                 # Production sensitivity
                 df_prod_mean = run_production_sensitivity_analysis(copy.deepcopy(current_input), sensitivity_type="mean")
-                df_prod_mean = _tag(df_prod_mean, 'Production (Mean)')
+                df_prod_mean = _tag(df_prod_mean, 'Production (Expected)')
 
                 df_prod_std = run_production_sensitivity_analysis(copy.deepcopy(current_input), sensitivity_type="std")
                 df_prod_std = _tag(df_prod_std, 'Production (Std)')
 
                 # Load scenario sensitivity
                 df_load_mean = run_load_scenario_sensitivity_analysis(copy.deepcopy(current_input), sensitivity_type="mean")
-                df_load_mean = _tag(df_load_mean, 'Load Sensitivity (Mean)')
+                df_load_mean = _tag(df_load_mean, 'Load Sensitivity (Expected)')
 
                 df_load_std = run_load_scenario_sensitivity_analysis(copy.deepcopy(current_input), sensitivity_type="std")
                 df_load_std = _tag(df_load_std, 'Load Sensitivity (Std)')
 
                 # Capture rates
                 df_cr_gen = run_capture_rate_sensitivity_analysis(copy.deepcopy(current_input))
-                df_cr_gen = _tag(df_cr_gen, 'Prod. Capture Rate (Mean)')
+                df_cr_gen = _tag(df_cr_gen, 'Prod. Capture Rate (Expected)')
 
                 df_cr_load = run_load_capture_rate_sensitivity_analysis(copy.deepcopy(current_input))
-                df_cr_load = _tag(df_cr_load, 'Load. Capture Rate (Mean)')
+                df_cr_load = _tag(df_cr_load, 'Load. Capture Rate (Expected)')
 
                 # Accumulate
                 all_rows.extend([
@@ -1117,7 +1117,6 @@ def run_load_generation_ratio_sensitivity_analysis(input_data_base):
     results_df = pd.DataFrame(results_sensitivity)
     return results_df
 
-
 def run_negotiation_power_vs_risk_sensitivity_analysis(
     input_data_base,
     A_G_values,
@@ -1197,6 +1196,57 @@ def run_negotiation_power_vs_risk_sensitivity_analysis(
     results_df = pd.DataFrame(results_list)
     print("\n--- Negotiation Power vs Risk-Aversion Sensitivity Complete ---")
     return results_df
+
+def run_bias_vs_risk_elasticity_sensitivity_analysis(input_data_base, A_G_values, A_L_values):
+
+    """Run all factor sensitivity analyses across multiple A_L values for each fixed A_G.
+    Returns a long DataFrame with a 'Factor' label so plotting can compute local elasticities per (A_G, A_L, Factor).
+    """
+    print("\n--- Starting Elasticity-vs-Risk Sensitivity Analysis ---")
+    all_rows = []
+
+    # Helper to tag results with a Factor label and ensure required columns exist
+    def _tag(df: pd.DataFrame, factor_name: str) -> pd.DataFrame:
+        out = df.copy()
+        out['Factor'] = factor_name
+        return out
+
+    for a_g in tqdm(A_G_values, desc="Fixed A_G values"):
+        for a_l in tqdm(A_L_values, desc="Varying A_L values", leave=False):
+            current_input = copy.deepcopy(input_data_base)
+            current_input.A_G = float(a_g)
+            current_input.A_L = float(a_l)
+
+            try:
+                # Price sensitivity
+                df_price_bias = run_price_bias_sensitivity_analysis(copy.deepcopy(current_input))
+                df_price_bias = _tag(df_price_bias, 'Price Bias')
+
+                if self.type == "PAP":
+
+                    df_CR_bias = run_production_bias_sensitivity_analysis(copy.deepcopy(current_input))
+                    df_CR_bias = _tag(df_CR_bias, 'Production Bias')
+
+                else:
+                    df_production_bias = run_production_bias_sensitivity_analysis(copy.deepcopy(current_input))
+                    df_production_bias = _tag(df_production_bias, 'Production Bias')
+
+                # Accumulate
+                all_rows.extend([
+                    df_price_bias, df_production_bias,
+                  
+                ])
+            except Exception as e:
+                print(f"Elasticity-vs-Risk block failed for A_G={a_g}, A_L={a_l}: {e}")
+                continue
+
+    if not all_rows:
+        return pd.DataFrame()
+
+    combined = pd.concat(all_rows, ignore_index=True, sort=False)
+    print("\n--- Elasticity-vs-Risk Sensitivity Analysis Complete ---")
+    return combined
+
 
 ############## Unncessary Sensitivity Analysis Functions ##############
 

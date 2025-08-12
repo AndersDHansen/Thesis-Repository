@@ -511,7 +511,8 @@ class Barter_Set:
             M_space = np.linspace(self.data.contract_amount_min, self.data.contract_amount_max, self.n)
         
         # Reshape M_space for proper broadcasting
-        test = np.zeros((self.n,2))
+        u_opt_curve = np.zeros((self.n,2))
+
 
         # Calculate the utility for each contract revenue
         for i in range(len(M_space)):            #Curve 1 
@@ -521,11 +522,17 @@ class Barter_Set:
             V_2_High[i,0] = self.Utility_G(self.BS_strike_max , M_space[i]) - self.data.Zeta_G
             V_2_High[i,1] = self.Utility_L(self.BS_strike_max , M_space[i]) - self.data.Zeta_L
 
+            u_opt_curve[i,0] = self.Utility_G(self.results.strike_price*1e-3, M_space[i]) - self.data.Zeta_G
+            u_opt_curve[i,1] = self.Utility_L(self.results.strike_price*1e-3, M_space[i]) - self.data.Zeta_L
+
+        # først det også tau test igen 
+        test = u_opt_curve[:,0] * u_opt_curve[:,1]
+        print(self.results.strike_price)
 
         #nash_product_test = (test[:,0]-self.data.Zeta_G)*(test[:,1]-self.data.Zeta_L)
         nash_product_low = (V_1_Low[:,0]-self.data.Zeta_G)*(V_1_Low[:,1]-self.data.Zeta_L)
 
-        nash_product_high = (V_2_High[:,0]-self.data.Zeta_G)*(V_2_High[:,1]-self.data.Zeta_L)
+        nash_product_high = (V_2_High[:,0]-self.data.Zeta_G)*(V_2_High[:,1])
 
         
         cond_MR,cond_MU,slope_1, slope_2, M_SR,M_SU, first_index_v1,first_index_v2= self.calculate_utility_derivative(M_space,V_1_Low, V_2_High)
@@ -548,6 +555,11 @@ class Barter_Set:
 
         uG_tau = np.zeros(n_tau)
         uL_tau = np.zeros(n_tau)
+
+        # Calculate utility for UL
+        for i in range(n_tau):
+            uG_tau[i] = (self.Utility_G(self.results.strike_price, M_SR) - self.data.Zeta_G)
+            uL_tau[i] = self.Utility_L(self.results.strike_price, M_SR) - self.data.Zeta_L
 
         #Calculate utility for UG 
 
@@ -612,7 +624,7 @@ class Barter_Set:
 
             self.plot_barter_curve( MSR_point, MSU_point, utility)
             plt.scatter(self.results.utility_G-self.data.Zeta_G, self.results.utility_L-self.data.Zeta_L, color='red', marker='o', s=100, label='Optimization Result (G,L)')
-
+            plt.plot(u_opt_curve[:,0], u_opt_curve[:,1], color='purple', linestyle='--', label='Optimal S* Utility Curve')
 
 
         plt.axvline(x=disagreement_point[0], color='black', linestyle='--', alpha=0.3)

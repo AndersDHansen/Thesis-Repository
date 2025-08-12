@@ -12,7 +12,7 @@ from sensitivity_analysis import (run_capture_price_analysis, run_no_contract_bo
                                   run_no_contract_boundary_analysis_price, run_negotiation_power_sensitivity_analysis,
                                   run_load_scenario_sensitivity_analysis,run_load_capture_rate_sensitivity_analysis,
                                   run_price_sensitivity_analysis ,run_load_generation_ratio_sensitivity_analysis,
-                                  run_negotiation_power_vs_risk_sensitivity_analysis, run_elasticity_vs_risk_sensitivity_analysis)
+                                  run_negotiation_power_vs_risk_sensitivity_analysis, run_elasticity_vs_risk_sensitivity_analysis, run_bias_vs_risk_elasticity_sensitivity_analysis)
 from contract_negotiation import ContractNegotiation
 from utils import ForecastProvider
 import copy
@@ -173,6 +173,17 @@ def run_contract_negotiation_sensitivity(input_data: InputData,
         )
         results['elasticity_vs_risk_sensitivity'] = evr_df
 
+    if sel('bias_vs_risk_elasticity'):
+        bre_input = copy.deepcopy(original_data)
+        sel_A_L_values = [0.1, 0.5, 0.9]  # Example values for A_L
+        sel_A_G_values = [0.1, 0.5, 0.9]  # Example values for A_G
+        bre_df = run_bias_vs_risk_elasticity_sensitivity_analysis(
+            bre_input,
+            A_G_values=sel_A_G_values,
+            A_L_values=sel_A_L_values,
+        )
+        results['bias_vs_risk_elasticity_sensitivity'] = bre_df
+
     return contract_model , results
 
 
@@ -197,7 +208,7 @@ def run_contract_negotiation(input_data: InputData):
 
         print(" Running Capture Price ...")
         capture_price_input = copy.deepcopy(original_data)
-        #CP_sensitivity_results, CP_earnings_sensitivity = run_capture_price_analysis(capture_price_input)
+        CP_sensitivity_results, CP_earnings_sensitivity = run_capture_price_analysis(capture_price_input)
 
 
         return base_results
@@ -207,7 +218,7 @@ def save_results_to_csv(results_dict, contract_type,time_horizon, num_scenarios)
     os.makedirs(results_folder, exist_ok=True)
     
     # Save dynamically only what was produced
-    risk_like_keys = {'negotiation_vs_risk_sensitivity', 'elasticity_vs_risk_sensitivity',"risk_sensitivity","risk_earnings_sensitivity","boundary_price"}
+    risk_like_keys = {'negotiation_vs_risk_sensitivity', 'elasticity_vs_risk_sensitivity',"risk_sensitivity","risk_earnings_sensitivity","boundary_price","bias_vs_risk_elasticity_sensitivity"}
 
     for result_name, data in results_dict.items():
         # Build base filename
@@ -258,7 +269,7 @@ def main():      # Define simulation parameters
     
     global A_L , A_G, boundary, sensitivity , Barter, scenario_time_horizon, opt_time_horizon, monte_price
     A_L = 0.5  # Initial risk aversion
-    A_G = 0.5  # Initial risk aversion
+    A_G = 0.5 # Initial risk aversion
     scenario_time_horizon = 20  # Must match the scenarios that were generated
     opt_time_horizon = 20  # Time horizon for optimization (in years)
     num_scenarios = 500  # Must match the scenarios that were generated
@@ -268,12 +279,12 @@ def main():      # Define simulation parameters
     monte_price = False
     tau_L = 0.5  # Asymmetry of power between load generator [0,1]
     tau_G = 1-tau_L  # Asymmetry of power between generation provider [0,1] - 1-tau_L
-    Barter = True  # Whether to relax the problem (Mc Cormick's relaxation)
-    contract_type = "Baseload" # Either "Baseload" or "PAP"
-    sensitivity = False  # Whether to run sensitivity analyses at all
+    Barter = False  # Whether to relax the problem (Mc Cormick's relaxation)
+    contract_type = "PAP" # Either "Baseload" or "PAP"
+    sensitivity = True  # Whether to run sensitivity analyses at all
     # Choose which analyses to run; leave empty to run all when sensitivity=True
     #selected_analyses: list[str] = ["capture_price", "negotiation_vs_risk","risk","price_bias","production_bias",]
-    selected_analyses: list[str] = ["risk"]
+    selected_analyses: list[str] = ['bias_vs_risk_elasticity']
 
     num_sensitivity = 5 # Number of sensitivity analysis points for tau_L and tau_G ( and A_G and A_L)  
     # Boundary analysis only on 20 years
