@@ -512,6 +512,7 @@ class Barter_Set:
         
         # Reshape M_space for proper broadcasting
         u_opt_curve = np.zeros((self.n,2))
+        nash_product_curve =np.zeros(self.n)
 
 
         # Calculate the utility for each contract revenue
@@ -522,13 +523,15 @@ class Barter_Set:
             V_2_High[i,0] = self.Utility_G(self.BS_strike_max , M_space[i]) - self.data.Zeta_G
             V_2_High[i,1] = self.Utility_L(self.BS_strike_max , M_space[i]) - self.data.Zeta_L
 
-            u_opt_curve[i,0] = self.Utility_G(self.results.strike_price*1e-3, M_space[i]) - self.data.Zeta_G
-            u_opt_curve[i,1] = self.Utility_L(self.results.strike_price*1e-3, M_space[i]) - self.data.Zeta_L
+            if self.results.optimal:
+                u_opt_curve[i,0] = self.Utility_G(self.results.strike_price*1e-3, M_space[i]) - self.data.Zeta_G
+                u_opt_curve[i,1] = self.Utility_L(self.results.strike_price*1e-3, M_space[i]) - self.data.Zeta_L
+                nash_product_curve[i] = (u_opt_curve[i,0])*(u_opt_curve[i,1])
 
-        # først det også tau test igen 
-        test = u_opt_curve[:,0] * u_opt_curve[:,1]
-        print(self.results.strike_price)
-
+     
+        plt.figure(figsize=(10, 6))
+        plt.plot(u_opt_curve[:,0], nash_product_curve, label='Curve 1 $S^R$', color='blue')
+        plt.show()
         #nash_product_test = (test[:,0]-self.data.Zeta_G)*(test[:,1]-self.data.Zeta_L)
         nash_product_low = (V_1_Low[:,0]-self.data.Zeta_G)*(V_1_Low[:,1]-self.data.Zeta_L)
 
@@ -548,18 +551,12 @@ class Barter_Set:
         UG_High_Mopt = self.Utility_G(self.BS_strike_max, M_SU) - self.data.Zeta_G
         UL_High_Mopt = self.Utility_L(self.BS_strike_max, M_SU) - self.data.Zeta_L
 
-        #Calculate negotiation power 
-        n_tau = 5
-        tau_L_values = np.linspace(0,1,n_tau)  # Asymmetry of power between load generator [0,1]
-        tau_G_values = np.ones(n_tau)- np.linspace(0,1,n_tau)
 
-        uG_tau = np.zeros(n_tau)
-        uL_tau = np.zeros(n_tau)
+
 
         # Calculate utility for UL
-        for i in range(n_tau):
-            uG_tau[i] = (self.Utility_G(self.results.strike_price, M_SR) - self.data.Zeta_G)
-            uL_tau[i] = self.Utility_L(self.results.strike_price, M_SR) - self.data.Zeta_L
+        UL_Low_Mopt = self.Utility_L(self.BS_strike_min, M_SR) - self.data.Zeta_L
+        UL_High_Mopt = self.Utility_L(self.BS_strike_max, M_SU) - self.data.Zeta_L      
 
         #Calculate utility for UG 
 
@@ -611,39 +608,56 @@ class Barter_Set:
             # Plot Optimal Contract Amount Point with fixed price SR and SU
             MSR_point = [UG_Low_Mopt, UL_Low_Mopt]
             MSU_point = [UG_High_Mopt, UL_High_Mopt]
-            utility = [self.results.utility_G - self.data.Zeta_G, self.results.utility_L - self.data.Zeta_L]
-            if self.data.contract_type == "PAP":
-                plt.scatter(UG_Low_Mopt, UL_Low_Mopt, color='green', marker='o', s=100,    label=fr'V1 $\gamma$ = {100*M_SR:.2f}%, M* = ({self.data.generator_contract_capacity * M_SR:.2f} MW)')
-                plt.scatter(UG_High_Mopt, UL_High_Mopt, color='green', marker='*', s=150,     label=fr'V1 $\gamma$ = {100*M_SU:.2f}%, M* = ({self.data.generator_contract_capacity * M_SU:.2f} MW)')
-               
 
-            else:
-                plt.scatter(UG_Low_Mopt, UL_Low_Mopt, color='green', marker='o', s=100, label=f'V1 M* = ({M_SR /8760*1e3:.2f} MWh)')
-                plt.scatter(UG_High_Mopt, UL_High_Mopt, color='green', marker='*', s=150, label=f'V2 M* = ({M_SU/8760*1e3:.2f} MWh)')
+            if self.results.optimal:
 
+                if self.data.contract_type == "PAP":
+                    plt.scatter(UG_Low_Mopt, UL_Low_Mopt, color='green', marker='o', s=150, label=fr'V1 $\gamma$ = {100*M_SR:.2f}%, M* = ({self.data.generator_contract_capacity * M_SR:.2f} MW)')
+                    plt.scatter(UG_High_Mopt, UL_High_Mopt, color='green', marker='*', s=150, label=fr'V1 $\gamma$ = {100*M_SU:.2f}%, M* = ({self.data.generator_contract_capacity * M_SU:.2f} MW)')
+                else:
+             
 
-            self.plot_barter_curve( MSR_point, MSU_point, utility)
-            plt.scatter(self.results.utility_G-self.data.Zeta_G, self.results.utility_L-self.data.Zeta_L, color='red', marker='o', s=100, label='Optimization Result (G,L)')
-            plt.plot(u_opt_curve[:,0], u_opt_curve[:,1], color='purple', linestyle='--', label='Optimal S* Utility Curve')
+                    plt.scatter(UG_Low_Mopt, UL_Low_Mopt, color='green', marker='o', s=150, label=f'V1 M* = ({M_SR /8760*1e3:.2f} MWh)')
+                    plt.scatter(UG_High_Mopt, UL_High_Mopt, color='green', marker='*', s=150, label=f'V2 M* = ({M_SU/8760*1e3:.2f} MWh)')
 
 
-        plt.axvline(x=disagreement_point[0], color='black', linestyle='--', alpha=0.3)
-        plt.axhline(y=disagreement_point[1], color='black', linestyle='--', alpha=0.3)
+                utility = [self.results.utility_G - self.data.Zeta_G, self.results.utility_L - self.data.Zeta_L]
+                self.plot_barter_curve( MSR_point, MSU_point, utility)
+
+
+                plt.scatter(self.results.utility_G-self.data.Zeta_G, self.results.utility_L-self.data.Zeta_L, color='red', marker='o', s=150, label='Optimization Result (G,L)')
+
+                for pos in arrow_positions:
+                    point_idx = int(len(V_2_High) * pos)
+                    if point_idx + 1 < len(V_2_High):
+                        plt.annotate('', 
+                            xy=(u_opt_curve[point_idx+1,0], u_opt_curve[point_idx+1,1]),
+                            xytext=(u_opt_curve[point_idx,0], u_opt_curve[point_idx,1]),
+                            arrowprops=dict(arrowstyle='->', color='purple', lw=2.5),
+                            annotation_clip=True)
+                plt.plot(u_opt_curve[:,0], u_opt_curve[:,1], color='purple', linestyle='--', label='Optimal S* Utility Curve', lw=2.5)
+
+
+        plt.axvline(x=disagreement_point[0], color='black', linestyle='--', alpha=0.7)
+        plt.axhline(y=disagreement_point[1], color='black', linestyle='--', alpha=0.7)
         # Original threat point plotting
-        plt.scatter(disagreement_point[0], disagreement_point[1], color='black', marker='o', s=100, label='Disagreement point')
+        plt.scatter(disagreement_point[0], disagreement_point[1], color='black', marker='o', s=150, label='Disagreement point')
 
         
        
         #plt.xlim()
 
-        plt.xlabel('Utility G - Zeta_G')
-        plt.ylabel('Utility L - Zeta_L')
+        plt.xlabel(f'$Utility - Disagreement Point (G) $',fontsize=20)
+        plt.ylabel(f'$Utility - Disagreement Point (L) $',fontsize=20)
+
+        plt.xticks(fontsize=18)
+        plt.yticks(fontsize=18)
 
         #plt.title(f'Barter Set Type: {self.data.contract_type} A_G={self.data.A_G:.2f}, A_L={self.data.A_L:.2f}, K_G={self.data.K_G_lambda_Sigma:.2f}, K_L={self.data.K_L_lambda_Sigma:.2f}')
-        plt.title(f'Barter Set: {self.data.contract_type} A_G={self.data.A_G:.2f}, A_L={self.data.A_L:.2f}')
+        plt.title(f'Barter Set(Normalized): {self.data.contract_type} A_G={self.data.A_G:.2f}, A_L={self.data.A_L:.2f}',fontsize=21)
 
 
-        plt.legend()
+        plt.legend(fontsize=18)
         plt.grid()
         plt.show()
 
@@ -795,7 +809,8 @@ class Barter_Set:
                     color='green', 
                     linestyle='--', 
                     label='Line between optimal points',
-                    alpha=0.4)
+                    alpha=0.5,
+                    lw=2.5)
 
             
             # Find vertical intersection (x = threat_point_x)
@@ -831,10 +846,10 @@ class Barter_Set:
             
          # Plot intersection points
         plt.scatter(disagreement_point[0], vertical_intersect_y, 
-                color='purple', marker='x', s=100)
+                color='purple', marker='x', s=150)
         plt.scatter(horizontal_intersect_x, disagreement_point[1], 
-                color='purple', marker='x', s=100)
-        
+                color='purple', marker='x', s=150)
+
         # Create and add the polygon
         polygon = plt.Polygon(vertices, facecolor='gray', 
                             label="Barter Set Region", alpha=0.2, edgecolor=None)
@@ -1049,7 +1064,7 @@ class Barter_Set:
 
         color_idx = 0
 
-        plt.figure(figsize=(10, 8))
+        plt.figure(figsize=(6, 6))
 
         for AG in AG_values:
             for AL in AL_values:
@@ -1098,22 +1113,22 @@ class Barter_Set:
                     [0, 0]  # Back to start
                 ])
 
-                plt.plot([MR_point[0], MU_point[0]], [MR_point[1], MU_point[1]], color=colors[color_idx],  linestyle='--', alpha=0.5)
+                plt.plot([MR_point[0], MU_point[0]], [MR_point[1], MU_point[1]], color=colors[color_idx],  linestyle='--', alpha=0.7)
 
                 label = f"A_G={AG:.2f}, A_L={AL:.2f}"
 
-                plt.plot(V_1_Low[:, 0], V_1_Low[:, 1], color=colors[color_idx], label=label, linewidth=2)
-                plt.plot(V_2_High[:, 0], V_2_High[:, 1], color=colors[color_idx], linewidth=2)
-                plt.scatter(V_1_Low[0, 0], V_1_Low[0, 1], color='black', marker='o', s=50)
+                plt.plot(V_1_Low[:, 0], V_1_Low[:, 1], color=colors[color_idx], label=label, linewidth=2.5)
+                plt.plot(V_2_High[:, 0], V_2_High[:, 1], color=colors[color_idx], linewidth=2.5)
+                plt.scatter(V_1_Low[0, 0], V_1_Low[0, 1], color='black', marker='o', s=125)
                 polygon = plt.Polygon(vertices, facecolor=colors[color_idx], alpha=0.2, edgecolor=None)
                 plt.gca().add_patch(polygon)
                 color_idx += 1
 
-        plt.xlabel('Utility G - Zeta_G', fontsize=14)
-        plt.ylabel('Utility L - Zeta_L', fontsize=14)
-        plt.title(f'{self.data.contract_type} Barter Sets for Different Risk Aversion Pairs', fontsize=16)
-        plt.legend(fontsize=12, loc='center left', bbox_to_anchor=(1, 0.5))
+        plt.xlabel(f'$Utility - Disagreement Point (G)$',fontsize=20)
+        plt.ylabel(f'$Utility - Disagreement Point (L)$',fontsize=20)
+        plt.xticks(fontsize=18)
+        plt.yticks(fontsize=18)
+        plt.title(f'Barter Sets(Normalized): {self.data.contract_type} for Different Risk Aversion Pairs', fontsize=21)
+        plt.legend(fontsize=18, loc='center left')
         plt.grid(True, linestyle='--', alpha=0.7)
-        plt.legend()
-        plt.grid(True)
         plt.show()

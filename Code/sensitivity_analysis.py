@@ -1222,14 +1222,10 @@ def run_bias_vs_risk_elasticity_sensitivity_analysis(input_data_base, A_G_values
                 df_price_bias = run_price_bias_sensitivity_analysis(copy.deepcopy(current_input))
                 df_price_bias = _tag(df_price_bias, 'Price Bias')
 
-                if self.type == "PAP":
+  
 
-                    df_CR_bias = run_production_bias_sensitivity_analysis(copy.deepcopy(current_input))
-                    df_CR_bias = _tag(df_CR_bias, 'Production Bias')
-
-                else:
-                    df_production_bias = run_production_bias_sensitivity_analysis(copy.deepcopy(current_input))
-                    df_production_bias = _tag(df_production_bias, 'Production Bias')
+                df_production_bias = run_production_bias_sensitivity_analysis(copy.deepcopy(current_input))
+                df_production_bias = _tag(df_production_bias, 'Production Bias')
 
                 # Accumulate
                 all_rows.extend([

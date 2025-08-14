@@ -155,13 +155,13 @@ def main():
     # Configuration for loading data 
     scenario_time_horizon = 20  # Must match the scenarios that were generated
     opt_time_horizon = 20  # Must match the scenarios that were generated
-    num_scenarios = 5000  # Must match the scenarios that were generated
+    num_scenarios = 500  # Must match the scenarios that were generated
     A_L = 0.5  # Initial risk aversion
     A_G = 0.5  # Initial risk aversion
     tau_L = 0.5  # Asymmetry of power between load generator [0,1]
     tau_G = 1-tau_L  # Asymmetry of power between generation provider [0,1] - 1-tau_L
     Barter = False  # Whether to relax the problem (Mc Cormick's relaxation)
-    contract_type = "PAP" # Either "Baseload" or "PAP"
+    contract_type = "Baseload" # Either "Baseload" or "PAP"
     monte_price = False  # Whether to use Monte Carlo price scenarios
     fixed_A_G=0.5 # Fixed at middle value for plotting purposes
     # Elasticity-vs-risk tornado configuration
@@ -353,39 +353,50 @@ def main():
 
     bias_risk_els_df = sensitivity_results.get('bias_vs_risk_elasticity_sensitivity')
     if isinstance(bias_risk_els_df, pd.DataFrame) and not bias_risk_els_df.empty:
-        plotter._plot_elasticity_tornado_vs_risk(bias = True, fixed_A_G_values=[elasticity_fixed_value],
+
+
+        plotter._plot_elasticity_tornado_vs_risk(bias = True, 
+                    fixed_A_G_values=None,
+                    fixed_A_L_values=[elasticity_fixed_value],
+                    metrics=['StrikePrice', 'ContractAmount'],
+                    filename=os.path.join(plots_folder, f'{bias_risk_elasticity_file}_AL_fix_{elasticity_fixed_value}'),
+                    fix='A_L')
+
+        plotter._plot_elasticity_tornado_vs_risk(bias = True, 
+                    fixed_A_G_values=None,
+                    fixed_A_L_values=[elasticity_fixed_value],
+                    metrics=['StrikePrice', 'ContractAmount'],
+                    filename=os.path.join(DROPBOX_DIR, f'{bias_risk_elasticity_file}_AL_fix_{elasticity_fixed_value}'),
+                    fix='A_L')
+        
+        plotter._plot_elasticity_tornado_vs_risk(bias = True, 
+                    fixed_A_G_values=[elasticity_fixed_value],
                     fixed_A_L_values=None,
                     metrics=['StrikePrice', 'ContractAmount'],
                     filename=os.path.join(plots_folder, f'{bias_risk_elasticity_file}_AG_fix_{elasticity_fixed_value}'),
                     fix='A_G')
         
-        plotter._plot_elasticity_tornado_vs_risk(bias = True, fixed_A_G_values=None,
-                    fixed_A_L_values=[elasticity_fixed_value],
-                    metrics=['StrikePrice', 'ContractAmount'],
-                    filename=os.path.join(plots_folder, f'{bias_risk_elasticity_file}_AL_fix_{elasticity_fixed_value}'),
-                    fix='A_L')
-        
-        plotter._plot_elasticity_tornado_vs_risk(bias = True, fixed_A_G_values=[elasticity_fixed_value],
+        plotter._plot_elasticity_tornado_vs_risk(bias = True, 
+                    fixed_A_G_values=[elasticity_fixed_value],
                     fixed_A_L_values=None,
                     metrics=['StrikePrice', 'ContractAmount'],
                     filename=os.path.join(DROPBOX_DIR, f'{bias_risk_elasticity_file}_AG_fix_{elasticity_fixed_value}'),
                     fix='A_G')
         
-        plotter._plot_elasticity_tornado_vs_risk(bias = True, fixed_A_G_values=None,
-                    fixed_A_L_values=[elasticity_fixed_value],
-                    metrics=['StrikePrice', 'ContractAmount'],
-                    filename=os.path.join(DROPBOX_DIR, f'{bias_risk_elasticity_file}_AL_fix_{elasticity_fixed_value}'),
-                    fix='A_L')
+        
+        
         #plotter._plot_bias_ris
         #plotter._plot_bias_risk_elasticity(filename=os.path.join(DROPBOX_DIR, bias_risk_elasticity_file))
 
      # Optional: negotiation power vs risk pairs plot if data exists
-    nego_vs_risk_df = sensitivity_results.get('negotiation_vs_risk_sensitivity')
-    if isinstance(nego_vs_risk_df, pd.DataFrame) and not nego_vs_risk_df.empty:
-        plotter._plot_negotiation_vs_risk(filename=os.path.join(plots_folder, negotiation_vs_risk_file))
-        plotter._plot_negotiation_vs_risk(filename=os.path.join(DROPBOX_DIR, negotiation_vs_risk_file))
+    #nego_vs_risk_df = sensitivity_results.get('negotiation_vs_risk_sensitivity')
+    #if isinstance(nego_vs_risk_df, pd.DataFrame) and not nego_vs_risk_df.empty:
+    #    plotter._plot_negotiation_vs_risk(filename=os.path.join(plots_folder, negotiation_vs_risk_file))
+   #     plotter._plot_negotiation_vs_risk(filename=os.path.join(DROPBOX_DIR, negotiation_vs_risk_file))
 
     # Optional: elasticity-vs-risk tornado plots (per fixed A_G)
+    
+    """
     el_vs_risk_df = sensitivity_results.get('elasticity_vs_risk_sensitivity')
     if isinstance(el_vs_risk_df, pd.DataFrame) and not el_vs_risk_df.empty:
         for mode in elasticity_vs_risk_modes:
@@ -427,6 +438,7 @@ def main():
                     filename=os.path.join(DROPBOX_DIR, f'{tornado_file}_fix_AL'),
                     fix='A_L'
                 )
+    """
     """ 
     rs_df = sensitivity_results.get('risk_sensitivity')
     if isinstance(rs_df, pd.DataFrame) and not rs_df.empty:

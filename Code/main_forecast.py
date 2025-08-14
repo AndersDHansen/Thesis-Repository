@@ -208,7 +208,7 @@ def run_contract_negotiation(input_data: InputData):
 
         print(" Running Capture Price ...")
         capture_price_input = copy.deepcopy(original_data)
-        CP_sensitivity_results, CP_earnings_sensitivity = run_capture_price_analysis(capture_price_input)
+        #CP_sensitivity_results, CP_earnings_sensitivity = run_capture_price_analysis(capture_price_input)
 
 
         return base_results
@@ -272,19 +272,19 @@ def main():      # Define simulation parameters
     A_G = 0.5 # Initial risk aversion
     scenario_time_horizon = 20  # Must match the scenarios that were generated
     opt_time_horizon = 20  # Time horizon for optimization (in years)
-    num_scenarios = 500  # Must match the scenarios that were generated
+    num_scenarios = 5000  # Must match the scenarios that were generated
 
 
     # Monte carlo price scenarios 
     monte_price = False
     tau_L = 0.5  # Asymmetry of power between load generator [0,1]
     tau_G = 1-tau_L  # Asymmetry of power between generation provider [0,1] - 1-tau_L
-    Barter = False  # Whether to relax the problem (Mc Cormick's relaxation)
-    contract_type = "PAP" # Either "Baseload" or "PAP"
-    sensitivity = True  # Whether to run sensitivity analyses at all
+    Barter = True  # Whether to relax the problem (Mc Cormick's relaxation)
+    contract_type = "Baseload" # Either "Baseload" or "PAP"
+    sensitivity = False  # Whether to run sensitivity analyses at all
     # Choose which analyses to run; leave empty to run all when sensitivity=True
     #selected_analyses: list[str] = ["capture_price", "negotiation_vs_risk","risk","price_bias","production_bias",]
-    selected_analyses: list[str] = ['bias_vs_risk_elasticity']
+    selected_analyses: list[str] = ['elasticity_vs_risk']
 
     num_sensitivity = 5 # Number of sensitivity analysis points for tau_L and tau_G ( and A_G and A_L)  
     # Boundary analysis only on 20 years

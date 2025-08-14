@@ -2253,12 +2253,12 @@ class Plotting_Class:
         # Delete unused
 
     def _plot_elasticity_tornado_vs_risk(self,
-                                         bias = False,
-                                         fixed_A_G_values=None,
-                                         fixed_A_L_values=None,
-                                         metrics=['StrikePrice'],
-                                         filename=None,
-                                         fix: str = 'A_G'):
+                                     bias = False,
+                                     fixed_A_G_values=None,
+                                     fixed_A_L_values=None,
+                                     metrics=['StrikePrice'],
+                                     filename=None,
+                                     fix: str = 'A_G'):
         """
         Plot grouped tornado bars (elasticities) for each metric across risk aversion combinations,
         computing elasticities with a log-log regression:
@@ -2267,37 +2267,23 @@ class Plotting_Class:
 
         Parameters
         ----------
-        df : DataFrame
-            Must contain columns:
-              - 'Factor' (categorical factor name, matching keys in factor_xcol mapping)
-              - risk aversion columns 'A_G', 'A_L'
-              - per-factor multiplicative change columns (e.g. 'Production_Change', 'Price_Change', etc.)
-              - metric columns (e.g. 'StrikePrice', 'ContractAmount', 'Utility_G', ...)
+        bias : bool
+            If True, analyzes bias factors (KG_Factor, KL_Factor) instead of production/price factors
         fixed_A_G_values : list[float] | None
             Values of A_G to fix when fix='A_G'
         fixed_A_L_values : list[float] | None
             Values of A_L to fix when fix='A_L'
         metrics : list[str]
             Metrics for which elasticities are plotted.
-        filename_prefix : str | None
-            If provided, each figure is saved as <prefix>_<metric>_AG=<val>.png or ..._AL=<val>.png
+        filename : str | None
+            If provided, each figure is saved as <filename>_<metric>.png
         fix : {'A_G','A_L'}
             Which party's risk aversion to hold fixed while grouping bars by the other party.
-        Notes
-        -----
-        - Uses only rows with strictly positive factor values AND strictly positive metric values
-          (log-log requires > 0).
-        - If fewer than 2 valid points for a (factor, risk) block -> NaN elasticity.
-        - The elasticity from log-log OLS is an average (global over the provided variation),
-          not a strictly local (point) elasticity.
         """
 
-      
-        
         if bias == False:
-
-            df = self.elasticity_vs_risk_df
-
+            df = self.elasticity_vs_risk_df.copy()
+            
             if df is None or df.empty:
                 print("No data for elasticity_vs_risk plotting.")
                 return
@@ -2324,34 +2310,75 @@ class Plotting_Class:
                 'Load. Capture Rate (Expected)',
                 'Load Sensitivity (Std)',
             ]
-        else:
+            
+        else:  # bias == True
+            df = self.bias_risk_elasticity_df.copy()
+            
+            if df is None or df.empty:
+                print("No data for bias_risk_elasticity plotting.")
+                return
 
-            df = self.bias_risk_elasticity_df
+            # Convert bias factors to multiplicative form (from additive)
+            df['KG_Factor_mult'] = 1.0 + df['KG_Factor']
+            df['KL_Factor_mult'] = 1.0 + df['KL_Factor']
 
-            df['KG_Factor'] = 1.0 + df['KG_Factor']
-            df['KL_Factor'] = 1.0 + df['KL_Factor']
+            # Create separate datasets for each bias scenario
+            scenarios = []
+            
+            # Scenario 1: KG_Factor = 0 (no bias for G), varying KL_Factor
+            # This gives us elasticity w.r.t. L's bias
+            kg_zero = df[df['KG_Factor'] == 0.0].copy()
+            if not kg_zero.empty:
+                # For Price Bias
+                price_bias_kg_zero = kg_zero[kg_zero['Factor'] == 'Price Bias'].copy()
+                price_bias_kg_zero['Factor'] = 'Price Bias (L)'
+                price_bias_kg_zero['varying_factor'] = 'KL_Factor_mult'
+                scenarios.append(price_bias_kg_zero)
+                
+                # For Production Bias  
+                prod_bias_kg_zero = kg_zero[kg_zero['Factor'] == 'Production Bias'].copy()
+                prod_bias_kg_zero['Factor'] = 'Production Bias (L)'
+                prod_bias_kg_zero['varying_factor'] = 'KL_Factor_mult'
+                scenarios.append(prod_bias_kg_zero)
 
-            price_bias_KG = df[df['KL_Factor'] == 1.00]
-            price_bias_KL = df[df['KG_Factor'] == 1.00]
+            # Scenario 2: KL_Factor = 0 (no bias for L), varying KG_Factor
+            # This gives us elasticity w.r.t. G's bias
+            kl_zero = df[df['KL_Factor'] == 0.0].copy()
+            if not kl_zero.empty:
+                # For Price Bias
+                price_bias_kl_zero = kl_zero[kl_zero['Factor'] == 'Price Bias'].copy()
+                price_bias_kl_zero['Factor'] = 'Price Bias (G)'
+                price_bias_kl_zero['varying_factor'] = 'KG_Factor_mult'
+                scenarios.append(price_bias_kl_zero)
+                
+                # For Production Bias
+                prod_bias_kl_zero = kl_zero[kl_zero['Factor'] == 'Production Bias'].copy()
+                prod_bias_kl_zero['Factor'] = 'Production Bias (G)'
+                prod_bias_kl_zero['varying_factor'] = 'KG_Factor_mult'
+                scenarios.append(prod_bias_kl_zero)
 
-            df = pd.concat([price_bias_KG, price_bias_KL], ignore_index=True)
+            # Combine all scenarios
+            df = pd.concat(scenarios, ignore_index=True)
+            
+            if df.empty:
+                print("No valid bias scenarios found (need KG_Factor=0 or KL_Factor=0 rows).")
+                return
 
+            # Factor mapping for bias analysis
             factor_xcol = {
-                'Price Bias': 'KG_Factor',
-                'Price Bias': 'KL_Factor',
-                'Production Bias': 'KG_Factor',
-                'Production Bias': 'KL_Factor',
+                'Price Bias (G)': 'KG_Factor_mult',
+                'Price Bias (L)': 'KL_Factor_mult', 
+                'Production Bias (G)': 'KG_Factor_mult',
+                'Production Bias (L)': 'KL_Factor_mult',
             }
 
             factor_order = [
-                'Price Bias',
-                'Price Bias',
-                'Production Bias',
-                'Production Bias',
+                'Price Bias (G)',
+                'Price Bias (L)',
+                'Production Bias (G)', 
+                'Production Bias (L)',
             ]
-           
-           
-        
+
         def _loglog_elasticity(block: pd.DataFrame, factor_col: str, metric_col: str) -> float | None:
             """
             Return slope of log(metric) vs log(factor) for the block (elasticity).
@@ -2375,6 +2402,7 @@ class Plotting_Class:
                 slope = 0.0
             return float(slope) if np.isfinite(slope) else np.nan
 
+        # Main plotting logic
         for metric in metrics:
             if fix == 'A_G':
                 if not fixed_A_G_values:
@@ -2383,7 +2411,7 @@ class Plotting_Class:
                 for ag in fixed_A_G_values:
                     sub = df[df['A_G'].round(3) == round(ag, 3)].copy()
                     if sub.empty:
-                        print(f"Warning: No rows for A_G={ag} in elasticity_vs_risk df.")
+                        print(f"Warning: No rows for A_G={ag} in df.")
                         continue
                     var_values = sorted(sub['A_L'].dropna().unique().tolist())
                     present_factors = [f for f in factor_order if f in sub['Factor'].unique()]
@@ -2425,15 +2453,18 @@ class Plotting_Class:
                     ax.set_yticks(y_positions)
                     ax.set_yticklabels([f"{f}" for f in present_factors], fontsize=self.legendsize)
                     ax.set_xlabel(f"Elasticity of ${metric}$", fontsize=self.labelsize)
-                    ax.set_title(f"Parameter Sensitivity {self.cm_data.contract_type}, A_G={ag}",
-                                 fontsize=self.titlesize)
+                    
+                    bias_suffix = " (Bias Analysis)" if bias else ""
+                    ax.set_title(f"Parameter Sensitivity {self.cm_data.contract_type}, A_G={ag}{bias_suffix}",
+                                fontsize=self.titlesize)
                     ax.grid(axis='x', linestyle=':', alpha=0.6)
-                    ax.legend(fontsize=self.legendsize-1, title_fontsize=self.legendsize-1,
-                              ncol=min(3, n_groups))
+                    ax.legend(fontsize=self.legendsize-1, title_fontsize=self.legendsize-1,loc="upper right",
+                            ncol=min(3, n_groups))
 
                     plt.tight_layout()
                     if filename:
-                        fname = f"{filename}_{metric}.png"
+                        bias_suffix = "_bias" if bias else ""
+                        fname = f"{filename}{bias_suffix}_{metric}_AG_{ag}.png"
                         plt.savefig(fname, bbox_inches='tight', dpi=300)
                         print(f"Saved log-log elasticity-vs-risk tornado: {fname}")
                         plt.close(fig)
@@ -2447,7 +2478,7 @@ class Plotting_Class:
                 for al in fixed_A_L_values:
                     sub = df[df['A_L'].round(3) == round(al, 3)].copy()
                     if sub.empty:
-                        print(f"Warning: No rows for A_L={al} in elasticity_vs_risk df.")
+                        print(f"Warning: No rows for A_L={al} in df.")
                         continue
                     var_values = sorted(sub['A_G'].dropna().unique().tolist())
                     present_factors = [f for f in factor_order if f in sub['Factor'].unique()]
@@ -2487,15 +2518,18 @@ class Plotting_Class:
                     ax.set_yticks(y_positions)
                     ax.set_yticklabels([f"{f}" for f in present_factors], fontsize=self.legendsize)
                     ax.set_xlabel(f"Elasticity of ${metric}$", fontsize=self.labelsize)
-                    ax.set_title(f"Parameter Sensitivity {self.cm_data.contract_type}, A_L={al}",
-                                 fontsize=self.titlesize)
+
+                    bias_suffix = " (Bias Analysis)" if bias else ""
+                    ax.set_title(f"Parameter Sensitivity {self.cm_data.contract_type}, A_L={al}{bias_suffix}",
+                                fontsize=self.titlesize)
                     ax.grid(axis='x', linestyle=':', alpha=0.6)
-                    ax.legend(fontsize=self.legendsize-1, title_fontsize=self.legendsize-1,
-                              ncol=min(3, n_groups))
+                    ax.legend(fontsize=self.legendsize-1, title_fontsize=self.legendsize-1,loc="upper right",
+                            ncol=min(3, n_groups))
 
                     plt.tight_layout()
                     if filename:
-                        fname = f"{filename}_{metric}_.png"
+                        bias_suffix = "_bias" if bias else ""
+                        fname = f"{filename}{bias_suffix}_{metric}_AL_{al}.png"
                         plt.savefig(fname, bbox_inches='tight', dpi=300)
                         print(f"Saved log-log elasticity-vs-risk tornado: {fname}")
                         plt.close(fig)
