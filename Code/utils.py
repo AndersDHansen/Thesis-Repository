@@ -54,13 +54,13 @@ class OPFProvider(PriceProductionProvider):
         
 
 class ForecastProvider(PriceProductionProvider):
-    def __init__(self, price_df: pd.DataFrame, prod_df: pd.DataFrame, CR_df: pd.DataFrame, load_df: pd.DataFrame, load_CR : pd.DataFrame, prob: float):
+    def __init__(self, price_df: pd.DataFrame, prod_df: pd.DataFrame, CR_df: pd.DataFrame, load_df: pd.DataFrame, load_CR : pd.DataFrame, prob: np.ndarray):
         self._price = price_df          # shape (T, S)
         self._prod  = prod_df           # shape (T, S)
         self._CR    = CR_df             # shape (T, S)
         self._load  = load_df           # shape (T, S)
         self._load_CR = load_CR         # shape (T, S)
-        self._prob  = prob              # usually 1/S
+        self._prob  = prob              # S 
 
     def price_matrix(self) -> np.ndarray:
         return self._price
@@ -74,7 +74,7 @@ class ForecastProvider(PriceProductionProvider):
         return self._load_CR
 
     @property
-    def probability(self) -> float:
+    def probability(self) -> np.ndarray:
         return self._prob
 
 def build_dataframe(data: Dict[tuple, Any], input_name: str) -> pd.DataFrame:

@@ -82,7 +82,7 @@ def run_contract_negotiation_sensitivity(input_data: InputData,
         production_bias_input = copy.deepcopy(original_data)
         production_bias_sensitivity_results = run_production_bias_sensitivity_analysis(production_bias_input)
         results['production_bias_sensitivity'] = production_bias_sensitivity_results
-    """ 
+     
     if sel('price_mean'):
         price_input_mean = copy.deepcopy(original_data)
         price_sensitivity_results_mean = run_price_sensitivity_analysis(price_input_mean, sensitivity_type="mean")
@@ -127,7 +127,7 @@ def run_contract_negotiation_sensitivity(input_data: InputData,
         boundary_data_input_production = copy.deepcopy(original_data)
         boundary_results_df_production = run_no_contract_boundary_analysis_production(boundary_data_input_production)
         results['boundary_results_production'] = boundary_results_df_production
-      """
+
     
     if sel('boundary_price'):
         boundary_data_input_price = copy.deepcopy(original_data)

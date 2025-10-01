@@ -657,7 +657,7 @@ class Barter_Set:
         plt.title(f'Barter Set(Normalized): {self.data.contract_type} A_G={self.data.A_G:.2f}, A_L={self.data.A_L:.2f}',fontsize=21)
 
 
-        plt.legend(fontsize=18)
+        plt.legend(fontsize=14)
         plt.grid()
         plt.show()
 
@@ -778,6 +778,7 @@ class Barter_Set:
                     [MR_point[1], MU_point[1]], 
                     color='green', 
                     linestyle='--', 
+                    linewidth=2,
                     label='Line between optimal points',
                     alpha=0.4)
             
