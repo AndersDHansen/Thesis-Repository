@@ -34,25 +34,6 @@ class PriceProductionProvider(ABC):
     @abstractmethod
     def probability(self) -> float: ...
 
-
-class OPFProvider(PriceProductionProvider):
-    def __init__(self, opf_results,prob):
-        self._r = opf_results            # OptimalPowerFlow.results
-        self._rPROB = prob
-
-    def price_matrix(self, node: str) -> np.ndarray:
-        return build_dataframe(self._r.price[node], 'price').values
-
-    def production_matrix(self) -> np.ndarray:
-        return build_dataframe(
-            self._r.generator_production, 'gen_prod'
-        ).values
-
-    @property
-    def probability(self) -> float:
-        return self._rPROB
-        
-
 class ForecastProvider(PriceProductionProvider):
     def __init__(self, price_df: pd.DataFrame, prod_df: pd.DataFrame, CR_df: pd.DataFrame, load_df: pd.DataFrame, load_CR : pd.DataFrame, prob: np.ndarray):
         self._price = price_df          # shape (T, S)
@@ -135,6 +116,124 @@ def weighted_expected_value(arr, scenario_probs):
         expected_value = np.sum(scenario_totals * scenario_probs) / arr.shape[0]  # Average over time
     return expected_value
 
+def get_worst_case_mask(z, probabilities, alpha=0.95):
+    """
+    Identify scenarios in the worst (1-alpha)% tail of z.
+    
+    Parameters:
+    -----------
+    z : array-like
+        Values to determine worst cases (e.g., z = x * y)
+    probabilities : array-like
+        Probability of each scenario
+    alpha : float
+        Confidence level (e.g., 0.95 means worst 5%)
+    
+    Returns:
+    --------
+    mask : boolean array
+        True for scenarios in the worst tail
+    """
+    z = np.asarray(z, dtype=float).ravel()
+    probs = np.asarray(probabilities, dtype=float).ravel()
+    probs = probs / probs.sum()  # Normalize
+    
+    tail_mass = 1.0 - alpha  # Probability mass in the tail
+    
+    # Sort by z values (worst to best)
+    order = np.argsort(z)
+    probs_sorted = probs[order]
+    
+    # Cumulative probability
+    cdf = np.cumsum(probs_sorted)
+    
+    # Find where cumulative probability reaches tail_mass
+    boundary_idx = np.searchsorted(cdf, tail_mass, side='right')
+    
+    # Create mask for tail scenarios
+    mask = np.zeros(len(z), dtype=bool)
+    mask[order[:boundary_idx]] = True
+    
+    return mask
+
+
+def conditional_cvar(x, z, probabilities, alpha=0.95):
+    """
+    Calculate CVaR of x conditional on z being in its worst tail.
+    
+    Parameters:
+    -----------
+    x : array-like
+        Variable to calculate CVaR for
+    z : array-like
+        Variable that determines worst-case scenarios (e.g., z = x * y)
+    probabilities : array-like
+        Probability of each scenario
+    alpha : float
+        Confidence level
+    
+    Returns:
+    --------
+    float : Conditional CVaR of x given z is in worst tail
+    """
+    x = np.asarray(x, dtype=float).ravel()
+    probs = np.asarray(probabilities, dtype=float).ravel()
+    probs = probs / probs.sum()
+    
+    # Get worst-case scenarios based on z
+    tail_mask = get_worst_case_mask(z, probs, alpha)
+    
+    # Extract x values and probabilities for tail scenarios
+    x_tail = x[tail_mask]
+    probs_tail = probs[tail_mask]
+    
+    # Calculate probability-weighted CVaR of x in the tail
+    cvar_x = np.sum(x_tail * probs_tail) / np.sum(probs_tail)
+    
+    return cvar_x
+
+
+
+def calculate_cvar_right(earnings: np.ndarray, alpha: float) -> float:
+    """Calculate the Conditional Value at Risk (CVaR) for given earnings.
+    
+    Parameters
+    ----------
+    earnings : ndarray
+        Array of earnings values
+    alpha : float
+        Confidence level for CVaR calculation, between 0 and 1
+    
+    Returns
+    -------
+    float
+        Calculated CVaR value
+    """
+    earnings = np.array(earnings)
+    earnings_sorted = np.sort(earnings)
+    var_threshold_lower = np.percentile(earnings_sorted, alpha*100)
+    right_tail = earnings_sorted[earnings_sorted >= var_threshold_lower]
+    cvar = np.mean(right_tail)
+    return cvar
+
+
+def calculate_cvar_left_simple(earnings: np.ndarray, alpha: float) -> float:
+    """
+    Left-tail CVaR using simple percentile method (assuming uniform probabilities).
+    Returns the conditional mean of the worst (1-alpha) tail.
+    alpha is the confidence level (e.g. 0.95 -> worst 5% left tail).
+    """
+    earnings = np.array(earnings)
+    earnings_sorted = np.sort(earnings)  # worst -> best
+    tail_mass = 1.0 - alpha
+    var_threshold = np.percentile(earnings_sorted, tail_mass * 100)
+    left_tail = earnings_sorted[earnings_sorted <= var_threshold]
+    cvar = np.mean(left_tail)
+    return cvar
+
+
+
+
 
 def calculate_cvar_left(earnings: np.ndarray, probabilities: pd.DataFrame, alpha: float) -> float:
     """Calculate the Conditional Value at Risk (CVaR) for given earnings.
@@ -179,6 +278,7 @@ def calculate_cvar_left(earnings: np.ndarray, probabilities: pd.DataFrame, alpha
     # Divide by exact tail mass to get the conditional expectation
     cvar = weighted_sum / tail_prob
    
+   
     
     """ 
     # Create figure
@@ -198,35 +298,6 @@ def calculate_cvar_left(earnings: np.ndarray, probabilities: pd.DataFrame, alpha
     
 
     return cvar
-
-
-
-def calculate_cvar_right(earnings: np.ndarray, alpha: float) -> float:
-    """Calculate the Conditional Value at Risk (CVaR) for given earnings.
-    
-    Parameters
-    ----------
-    earnings : ndarray
-        Array of earnings values
-    alpha : float
-        Confidence level for CVaR calculation, between 0 and 1
-    
-    Returns
-    -------
-    float
-        Calculated CVaR value
-    """
-    earnings = np.array(earnings)
-    earnings_sorted = np.sort(earnings)
-    var_threshold_lower = np.percentile(earnings_sorted, alpha*100)
-    right_tail = earnings_sorted[earnings_sorted >= var_threshold_lower]
-    cvar = np.mean(right_tail)
-    return cvar
-
-
-
-
-
 
 def _left_tail_mask(arr, probabilities, alpha):
 
@@ -255,25 +326,64 @@ def _left_tail_mask(arr, probabilities, alpha):
     mask = np.zeros_like(values, dtype=bool)
     mask[order[:boundary_idx + 1]] = True
 
-    return mask, order, boundary_idx, cdf   # boolean mask indicating left tail scenarios
+    return order, boundary_idx   # boolean mask indicating left tail scenarios
 
-def _left_tail_weighted_sum(probabilities, weights,
-                            order, boundary_idx, cdf, tail_prob):
-        """
-        Σ_i  p_i * w_i  over the left tail, taking only the fraction
-        of the boundary scenario that is actually in the tail.
-        """
-        probabilities = probabilities[order]
-        weights       = weights.iloc[order]
+def _left_tail_weighted_sum(probabilities, values,
+                             order, boundary_idx, tail_prob):
+    """
+    Σ_i  p_i * w_i  over the left tail, taking only the fraction
+    of the boundary scenario that is actually in the tail.
+    
+    Parameters:
+    -----------
+    probabilities : array-like
+        Original probabilities (not masked yet)
+    values : array-like
+        Original values (not masked yet)
+    mask : boolean array
+        Mask identifying full scenarios in tail (before boundary)
+    boundary_idx : int
+        Index in the sorted order where boundary occurs
+    order : array
+        Sorted indices (worst to best)
+    cdf : array
+        Cumulative distribution in sorted order
+    tail_prob : float
+        Target tail probability mass (e.g., 0.05 for 95% confidence)
+    
+    Returns:
+    --------
+    float : Probability-weighted sum over the tail
+    """
+    probabilities = np.asarray(probabilities, dtype=float).ravel()
+    values = np.asarray(values, dtype=float).ravel()
 
-        prob_before   = cdf[boundary_idx - 1] if boundary_idx > 0 else 0.0
-        need          = tail_prob - prob_before             # 0 ≤ need ≤ p_boundary
+    sorted_values = values[order]
+    sorted_probs  = probabilities[order]
+    
+    # Weighted sum of earnings in the tail (include fractional boundary weight)
+    weighted_sum  = np.dot(sorted_values[:boundary_idx], sorted_probs[:boundary_idx])
+    needed_from_i = ((1-tail_prob) - sum(sorted_probs[:boundary_idx]))
+    weighted_sum += sorted_values[boundary_idx] * needed_from_i
+    cvar = weighted_sum / (sum(sorted_probs[:boundary_idx]) + needed_from_i)
 
-        # full scenarios strictly before the boundary
-        total  = np.dot(probabilities[:boundary_idx], weights[:boundary_idx])
-        # fractional contribution from the boundary scenario
-        total += weights.iloc[boundary_idx] * need
-        return total
+    return cvar
+
+    """
+
+    # Calculate fractional weight needed from boundary scenario
+    prob_before = cdf[boundary_idx - 1] if boundary_idx > 0 else 0.0
+    need = max(0.0, tail_prob - prob_before)  # Fractional weight for boundary
+    
+    # Sum full scenarios before boundary
+    total = np.dot(probs_sorted[:boundary_idx], values_sorted[:boundary_idx])
+    
+    # Add fractional contribution from boundary scenario
+    if boundary_idx < len(values_sorted) and need > 0:
+        total += values_sorted[boundary_idx] * need
+    
+    return total
+    """
 
 def _right_tail_mask(arr, alpha):
     var_threshold_lower = np.percentile(arr, (1-alpha)*100)
@@ -289,20 +399,16 @@ def _calculate_S_star_PAP_G(x,gamma,A,alpha, production,price,capture_rate,PROB)
     pi_G = ((1-gamma) * production * price * capture_rate + 
                     gamma * production * S).sum(axis=0)
 
+    ord_G, bidx_G  = _left_tail_mask(pi_G,PROB, alpha)
 
-    mask_G, ord_G, bidx_G, cdf_G  = _left_tail_mask(pi_G,PROB, alpha)
+    d_piG = (production * (S - price * capture_rate)).sum(axis=0)
 
-
-    rev_G = (production * (S - price * capture_rate)).sum(axis=0)
-    expected_G = (PROB * rev_G).sum()
-
-    tail_G = _left_tail_weighted_sum(PROB,pi_G,ord_G, bidx_G, cdf_G, alpha)
+    expected_G = (PROB * d_piG).sum()
+    tail_G = _left_tail_weighted_sum(PROB,d_piG,ord_G, bidx_G, alpha)
     # Calculate S_star
     S_star = (1-A) * expected_G + A * tail_G
 
     # Risk adjustment
-
-
 
     return S_star
 
@@ -313,16 +419,17 @@ def _calculate_S_star_PAP_L(x,gamma,A,alpha, production,price,capture_rate,load_
     S = x[0]
     pi_L = (-price * load_CR * load_scenarios).sum(axis=0) + (gamma * production * (price * capture_rate - S)).sum(axis=0)
 
-    mask_L, ord_L, bidx_L, cdf_L  = _left_tail_mask(pi_L,PROB, alpha)
-    rev_L = (production * ( price * capture_rate - S)).sum(axis=0)
-    expected_L = (PROB * rev_L).sum()
-    tail_L = _left_tail_weighted_sum(PROB,pi_L,ord_L, bidx_L, cdf_L, alpha)
+    ord_L, bidx_L  = _left_tail_mask(pi_L,PROB, alpha)
+    
+    #Derivative function 
+    d_piL = (production*capture_rate*price-production*S).sum(axis=0)
+    expected_L = (PROB * d_piL).sum()
+
+    tail_L = _left_tail_weighted_sum(PROB,d_piL,ord_L, bidx_L, alpha)
     # Calculate S_star
     S_star = (1 - A) * expected_L + A * tail_L
 
     return S_star
-
-
 
 def _calculate_S_star_BL_G(x,M,A,alpha, production,price,capture_rate,PROB):
     """
@@ -331,12 +438,13 @@ def _calculate_S_star_BL_G(x,M,A,alpha, production,price,capture_rate,PROB):
     S =x[0]
     pi_G = (production * price * capture_rate + (S - price)*M).sum(axis=0)
 
-    mask_G, ord_G, bidx_G, cdf_G  = _left_tail_mask(pi_G,PROB, alpha)
+    ord_G, bidx_G  = _left_tail_mask(pi_G,PROB, alpha)
 
     rev_G = (-M * price).sum(axis=0)
     expected_G = (PROB * rev_G).sum()
+    test = weighted_expected_value(rev_G, PROB)
 
-    tail_G = _left_tail_weighted_sum(PROB,pi_G,ord_G, bidx_G, cdf_G, alpha)
+    tail_G = _left_tail_weighted_sum(PROB,pi_G,ord_G, bidx_G, alpha)
     # Calculate S_star
     S_star = (1-A) * expected_G + A * tail_G
 
@@ -349,11 +457,11 @@ def _calculate_S_star_BL_L(x,M,A,alpha, production,price,capture_rate,load_CR, l
     S = x[0]
     pi_L = (-load_scenarios*load_CR*price).sum(axis=0) + ((price-S) * M).sum(axis=0)
 
-    mask_L, ord_L, bidx_L, cdf_L  = _left_tail_mask(pi_L,PROB, alpha)
+    ord_L, bidx_L  = _left_tail_mask(pi_L,PROB, alpha)
 
     rev_L = (M * price).sum(axis=0)
     expected_L = (PROB * rev_L).sum()
-    tail_L = _left_tail_weighted_sum(PROB,pi_L,ord_L, bidx_L, cdf_L, alpha) 
+    tail_L = _left_tail_weighted_sum(PROB,pi_L,ord_L, bidx_L, alpha)
     # Calculate S_star
     S_star = (1 - A) * expected_L + A * tail_L
 

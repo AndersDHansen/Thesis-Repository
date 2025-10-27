@@ -6,7 +6,8 @@ import gurobipy as gp
 import pandas as pd
 import matplotlib.pyplot as plt
 from gurobipy import GRB
-from utils import Expando, _calculate_S_star_BL_G,_calculate_S_star_BL_L, _calculate_S_star_PAP_L, build_dataframe, calculate_cvar_left, _left_tail_weighted_sum, _left_tail_mask, _calculate_S_star_PAP_G , weighted_expected_value
+from utils import (Expando, _calculate_S_star_BL_G,_calculate_S_star_BL_L, _calculate_S_star_PAP_L, build_dataframe, calculate_cvar_left, _left_tail_weighted_sum, _left_tail_mask, _calculate_S_star_PAP_G , weighted_expected_value, calculate_cvar_left_simple
+                   , get_worst_case_mask,conditional_cvar)
 from Barter_Set import Barter_Set
 from tqdm import tqdm
 import scipy.stats as stats
@@ -132,7 +133,7 @@ class ContractNegotiation:
 
         # Prepare for threat point calculations
         # Calculate dimensions from loaded scenarios
-        """
+       
         num_scenarios = self.data.price_true.shape[1]
         time_periods = self.data.price_true.shape[0]
         
@@ -165,65 +166,81 @@ class ContractNegotiation:
             #                + self.data.K_L_lambda_Sigma  - self.data.A_L * self.data.expected_lambda_sum_true )  / time_periods   # SR* numerator for LSE
 
             # Method 2 - Stochastic 
-            mask_G, ord_G, bidx_G, cdf_G  = _left_tail_mask(self.data.net_earnings_no_contract_priceG_G,self.data.PROB, self.data.alpha)
-            mask_L, ord_L, bidx_L, cdf_L = _left_tail_mask(self.data.net_earnings_no_contract_priceL_L, self.data.PROB, self.data.alpha)
-            neg_mask_G, neg_ord_G, neg_bidx_G, neg_cdf_G = _left_tail_mask(-self.data.net_earnings_no_contract_priceG_G, self.data.PROB, self.data.alpha)
-            neg_mask_L, neg_ord_L, neg_bidx_L, neg_cdf_L = _left_tail_mask(-self.data.net_earnings_no_contract_priceL_L, self.data.PROB, self.data.alpha)
-
+            ord_G, bidx_G  = _left_tail_mask(self.data.net_earnings_no_contract_priceG_G,self.data.PROB, self.data.alpha)
+            ord_L, bidx_L = _left_tail_mask(self.data.net_earnings_no_contract_priceL_L, self.data.PROB, self.data.alpha)
+            neg_ord_G, neg_bidx_G = _left_tail_mask(-self.data.net_earnings_no_contract_priceG_G, self.data.PROB, self.data.alpha)
+            neg_ord_L, neg_bidx_L = _left_tail_mask(-self.data.net_earnings_no_contract_priceL_L, self.data.PROB, self.data.alpha)
+            
 
 
 
             tail_G = _left_tail_weighted_sum(self.data.PROB,
                                     self.data.lambda_sum_G_per_scenario,
-                                        ord_G, bidx_G, cdf_G, self.data.alpha)
+                                        ord_G, bidx_G, self.data.alpha)
 
             neg_tail_G = _left_tail_weighted_sum(self.data.PROB,
                                                 self.data.lambda_sum_G_per_scenario,
-                                                neg_ord_G, neg_bidx_G, neg_cdf_G, self.data.alpha)
+                                                neg_ord_G, neg_bidx_G, self.data.alpha)
             tail_L = _left_tail_weighted_sum(self.data.PROB,
                                             self.data.lambda_sum_L_per_scenario,
-                                            ord_L, bidx_L, cdf_L, self.data.alpha)
+                                            ord_L, bidx_L, self.data.alpha)
 
             neg_tail_L = _left_tail_weighted_sum(self.data.PROB,
                                                 self.data.lambda_sum_L_per_scenario,
-                                                neg_ord_L, neg_bidx_L, neg_cdf_L, self.data.alpha)
+                                                neg_ord_L, neg_bidx_L, self.data.alpha)
+
+            test_G = conditional_cvar(self.data.lambda_sum_G_per_scenario, self.data.net_earnings_no_contract_priceG_G, self.data.PROB, alpha=self.data.alpha)
+            test_G_neg = conditional_cvar(self.data.lambda_sum_G_per_scenario, -self.data.net_earnings_no_contract_priceG_G, self.data.PROB, alpha=self.data.alpha)
             
+            test_L = conditional_cvar(self.data.lambda_sum_L_per_scenario, self.data.net_earnings_no_contract_priceL_L, self.data.PROB, alpha=self.data.alpha)
+            test_L_neg = conditional_cvar(self.data.lambda_sum_L_per_scenario, -self.data.net_earnings_no_contract_priceL_L, self.data.PROB, alpha=self.data.alpha)
             
             self.data.term1_G_new =(( (1-self.data.A_G) * self.data.expected_lambda_sum_true +self.data.K_G_lambda_Sigma ) + self.data.A_G * neg_tail_G)/ time_periods    # SR* numerator for Gen
-
+            test_term1 = (( (1-self.data.A_G) * self.data.expected_lambda_sum_true +self.data.K_G_lambda_Sigma ) + self.data.A_G * test_G_neg)/ time_periods    # SR* numerator for Gen
             # high-price risk (feeds S_U*)
             self.data.term2_G_new = (((1-self.data.A_G) * self.data.expected_lambda_sum_true + self.data.K_G_lambda_Sigma ) + self.data.A_G * tail_G) / time_periods     # SU* numerator for Gen
-
+            test_term2 = (((1-self.data.A_G) * self.data.expected_lambda_sum_true + self.data.K_G_lambda_Sigma ) + self.data.A_G * test_G) / time_periods     # SU* numerator for Gen
             # Load-serving entity ––––––––––––––––––––––––––––––––––––––––––––––
              # low-price risk (feeds S_R*)
             self.data.term3_L_SR_new = ( self.data.expected_lambda_sum_true
                                 + self.data.A_L * neg_tail_L
                             + self.data.K_L_lambda_Sigma  - self.data.A_L * self.data.expected_lambda_sum_true )  / time_periods   # SR* numerator for LSE
             
+            test_term3 =  ( self.data.expected_lambda_sum_true
+                                + self.data.A_L * test_L_neg
+                            + self.data.K_L_lambda_Sigma  - self.data.A_L * self.data.expected_lambda_sum_true )  / time_periods   # SR* numerator for LSE
             # high-price risk  (feeds S_U*)
             self.data.term4_L_SU_new = (self.data.expected_lambda_sum_true
                             + self.data.A_L * tail_L
                             + self.data.K_L_lambda_Sigma - self.data.A_L * self.data.expected_lambda_sum_true  ) / time_periods   # SU* numerator for LSE
-           
-          
-
+            test_term4 = (self.data.expected_lambda_sum_true
+                            + self.data.A_L * test_L
+                            + self.data.K_L_lambda_Sigma - self.data.A_L * self.data.expected_lambda_sum_true  ) / time_periods   # SU* numerator for LSE
 
             # Calculate SR* using Equation (27) - Minimum of the relevant terms
             #self.data.SR_star = np.min([self.data.term1_G, self.data.term2_G, self.data.term3_L_SR])   # Convert from $/GWh to $/MWh
             self.data.SR_star_new = np.min([self.data.term1_G_new, self.data.term2_G_new, self.data.term4_L_SU_new])  # Convert from $/GWh to $/MWh
-
+            test_SR = np.min([test_term1, test_term2, test_term3])   # Convert from $/GWh to $/MWh
             # Calculate SU* using Equation (28) - Maximum of the relevant terms
             #self.data.SU_star = np.max([self.data.term1_G, self.data.term2_G, self.data.term4_L_SU])  
-            self.data.SU_star_new = np.max([self.data.term1_G_new, self.data.term3_L_SR_new, self.data.term4_L_SU_new])  # Convert from $/GWh to $/MWh
-
+            self.data.SU_star_new = np.max([self.data.term1_G_new, self.data.term2_G_new, self.data.term4_L_SU_new])  # Convert from $/GWh to $/MWh
+            test_SU = np.max([test_term1, test_term2, test_term4])  # Convert from $/GWh to $/MWh
             #print(f"Calculated SR* using New (Eq 27) (Hourly Price [EUR/MWh]): {self.data.SR_star*1e3:.4f}")
             #print(f"Calculated SU* using new (Eq 28) (Hourly Price [EUR/MWh]: {self.data.SU_star*1e3:.4f}")
 
             
             print(f"Calculated SR* using New (Eq 27) (Hourly Price [EUR/MWh]): {self.data.SR_star_new*1e3:.4f}")
+            print(f"Calculated test SR* using New (Eq 27) (Hourly Price [EUR/MWh]): {test_SR*1e3:.4f}")
+
+    
             print(f"Calculated SU* using new (Eq 28) (Hourly Price [EUR/MWh]: {self.data.SU_star_new*1e3:.4f}")
+            print(f"Calculated test SU* using New (Eq 28) (Hourly Price [EUR/MWh]): {test_SU*1e3:.4f}")
+
             #self.data.strikeprice_min = self.data.SR_star_new + 1e-3  # Add a small epsilon to avoid numerical issues
             #self.data.strikeprice_max = self.data.SR_star_new + 1e-3
+            #self.data.SR_star_new  = test_SR
+
+            #self.data.SU_star_new = test_SU
 
 
             def constraint_S_star_G(x):
@@ -253,7 +270,7 @@ class ContractNegotiation:
                 args=(M,self.data.A_G, self.data.alpha, self.data.production_G, self.data.price_G,self.data.capture_rate,self.data.PROB),
                 bounds=bounds,
                 constraints=[nonlinear_constraint_S_star_G],
-                method='SLSQP',
+                method='trust-constr',
                 options={'disp': False, 'maxiter': 1000,'gtol': 1e-6,}
             )
             result_L = minimize(
@@ -262,7 +279,7 @@ class ContractNegotiation:
                 args=(M,self.data.A_L, self.data.alpha, self.data.production_L, self.data.price_L,self.data.capture_rate,self.data.load_CR,self.data.load_scenarios,self.data.PROB),
                 bounds=bounds,
                 constraints=[nonlinear_constraint_S_star_L],
-                method='SLSQP',
+                method='trust-constr',
                 options={'disp': False, 'maxiter': 1000,'gtol': 1e-6,}
             )
 
@@ -272,29 +289,28 @@ class ContractNegotiation:
 
             print(f"Optimal Strike Price (Generator-side): {self.data.SR_star_new*1e3:.4f} EUR/MWh")
             print(f"Optimal Strike Price (Load-side): {self.data.SU_star_new*1e3:.4f} EUR/MWh")
+            
             print()
         else:
-
-
             # Define bounds for S (e.g., strike price range)
-            bounds = [(self.data.strikeprice_min, self.data.strikeprice_max)]
+            bounds = [(self.data.strikeprice_min-0.02, self.data.strikeprice_max)]
 
             # Initial guess for S
-            initial_guess = (self.data.strikeprice_min ) 
+            initial_guess = (self.data.strikeprice_min-0.01) 
             initial_guess_L = (self.data.strikeprice_max) 
 
             # Perform optimization
             #gamma = 1 since that is the most likely resulting contract amount for PAP 
-            gamma = 0 
+            gamma = 0
 
             def constraint_S_star_G(x):
-                S_star = _calculate_S_star_PAP_G(x  , gamma,self.data.A_G, self.data.alpha, self.data.production_G, self.data.price_G,self.data.capture_rate,self.data.PROB)
-                print(f"Calculated S_star_G: {S_star}")
+                S_star = _calculate_S_star_PAP_G(x, gamma,self.data.A_G, self.data.alpha, self.data.production_G, self.data.price_G,self.data.capture_rate,self.data.PROB)
+                #print(f"Calculated S_star_G: {S_star}")
                 return S_star
 
             def constraint_S_star_L(x):
                 S_star = _calculate_S_star_PAP_L(x, gamma,self.data.A_L, self.data.alpha, self.data.production_L, self.data.price_L,self.data.capture_rate,self.data.load_CR,self.data.load_scenarios,self.data.PROB)
-                print(f"Calculated S_star_L: {S_star}")
+                #print(f"Calculated S_star_L: {S_star}")
                 return S_star
 
             nonlinear_constraint_S_star_G = NonlinearConstraint(constraint_S_star_G, 0, np.inf)
@@ -307,7 +323,7 @@ class ContractNegotiation:
                 args=(gamma,self.data.A_G, self.data.alpha, self.data.production_G, self.data.price_G,self.data.capture_rate,self.data.PROB),
                 bounds=bounds,
                 constraints=[nonlinear_constraint_S_star_G],
-                method='SLSQP',
+                method='trust-constr',
                 options={'disp': True, 'maxiter': 1000,'gtol': 1e-10,}
             )
             result_L = minimize(
@@ -327,7 +343,7 @@ class ContractNegotiation:
             print(f"Optimal Strike Price (Generator-side): {self.data.SR_star_new*1e3:.4f} EUR/MWh")
             print(f"Optimal Strike Price (Load-side): {self.data.SU_star_new*1e3:.4f} EUR/MWh")
             print()
-            """ 
+     
     def _build_variables_PAP(self):
 
          # Auxiliary variables for logaritmic terms
@@ -848,7 +864,7 @@ class ContractNegotiation:
                 A_L_values = [0.1,0.5,0.9]
                 A_G_values = [0.1,0.9]
 
-                BS.plot_multiple_barter_sets(A_G_values, A_L_values)
+                #BS.plot_multiple_barter_sets(A_G_values, A_L_values)
                 #self.manual_optimization(plot=True)
                 #self.batch_manual_optimization(A_G_values= [0.0,0.5,0.9],A_L_values=[0.0])
               

@@ -185,8 +185,8 @@ def main():
     )    # InputData object is now created in load_data()    # Define risk aversion parameters for both objective functions
     
     params = {
-        'A_G_values': np.array([0,0.1,0.25,0.5,0.75,0.9,1]),  # A in [0,1]
-        'A_L_values':np.array([0,0.1,0.25,0.5,0.75,0.9,1]),
+        'A_G_values': np.array([0.1,0.5,0.9]),  # A in [0,1]
+        'A_L_values':np.array([0.1,0.5,0.9]),
     }
     # Load scenarios from CSV files
     scenario_pattern = f"{{type}}_scenarios_reduced_{scenario_time_horizon}y_{num_scenarios}s.csv"
@@ -351,9 +351,22 @@ def main():
     # Generate plots
     # Boxplot of earnings
 
+    presentation_boxplot_name= f"presentation_earnings_boxplot_AG={fixed_A_G}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+    re_df = sensitivity_results.get('risk_earnings_sensitivity')
+    if isinstance(re_df, pd.DataFrame) and not re_df.empty:
+        plotter._risk_plot_earnings_boxplot( fixed_A_G,  A_L_to_plot=params['A_L_values'].tolist(),filename=os.path.join(plots_folder, presentation_boxplot_name))
+
+    presentation_risk_name = f"presentation_risk_sensitivity_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+    if sensitivity_results.get('risk_sensitivity') is not None:
+        plotter._plot_sensitivity_results_heatmap('risk',filename=os.path.join(plots_folder, presentation_risk_name))
+
+    
+
+    
+
     bias_risk_els_df = sensitivity_results.get('bias_vs_risk_elasticity_sensitivity')
     if isinstance(bias_risk_els_df, pd.DataFrame) and not bias_risk_els_df.empty:
-
+        """
 
         plotter._plot_elasticity_tornado_vs_risk(bias = True, 
                     fixed_A_G_values=None,
@@ -396,48 +409,48 @@ def main():
 
     # Optional: elasticity-vs-risk tornado plots (per fixed A_G)
     
-    """
-    el_vs_risk_df = sensitivity_results.get('elasticity_vs_risk_sensitivity')
-    if isinstance(el_vs_risk_df, pd.DataFrame) and not el_vs_risk_df.empty:
-        for mode in elasticity_vs_risk_modes:
-            if mode == 'A_G':
-                # Save to local plots
-                plotter._plot_elasticity_tornado_vs_risk(
-                    bias = False,
-                    fixed_A_G_values=[elasticity_fixed_value],
-                    fixed_A_L_values=None,
-                    metrics=['StrikePrice', 'ContractAmount'],
-                    filename=os.path.join(plots_folder, f'{tornado_file}_fix_AG'),
-                    fix='A_G'
-                )
-                # Save to Dropbox figures
-                plotter._plot_elasticity_tornado_vs_risk(
-                    bias=False,
-                    fixed_A_G_values=[elasticity_fixed_value],
-                    fixed_A_L_values=None,
-                    metrics=['StrikePrice', 'ContractAmount'],
-                    filename=os.path.join(plots_folder, f'{tornado_file}_fix_AG'),
-                    fix='A_G'
-                )
-            elif mode == 'A_L':
-                # Save to local plots
-                plotter._plot_elasticity_tornado_vs_risk(
-                    bias=False,
-                    fixed_A_G_values=None,
-                    fixed_A_L_values=[elasticity_fixed_value],
-                    metrics=['StrikePrice', 'ContractAmount'],
-                    filename=os.path.join(plots_folder, f'{tornado_file}_fix_AL'),
-                    fix='A_L'
-                )
-                # Save to Dropbox figures
-                plotter._plot_elasticity_tornado_vs_risk(
-                    bias=False,
-                    fixed_A_G_values=None,
-                    fixed_A_L_values=[elasticity_fixed_value],
-                    metrics=['StrikePrice', 'ContractAmount'],
-                    filename=os.path.join(DROPBOX_DIR, f'{tornado_file}_fix_AL'),
-                    fix='A_L'
-                )
+   
+        el_vs_risk_df = sensitivity_results.get('elasticity_vs_risk_sensitivity')
+        if isinstance(el_vs_risk_df, pd.DataFrame) and not el_vs_risk_df.empty:
+            for mode in elasticity_vs_risk_modes:
+                if mode == 'A_G':
+                    # Save to local plots
+                    plotter._plot_elasticity_tornado_vs_risk(
+                        bias = False,
+                        fixed_A_G_values=[elasticity_fixed_value],
+                        fixed_A_L_values=None,
+                        metrics=['StrikePrice', 'ContractAmount'],
+                        filename=os.path.join(plots_folder, f'{tornado_file}_fix_AG'),
+                        fix='A_G'
+                    )
+                    # Save to Dropbox figures
+                    plotter._plot_elasticity_tornado_vs_risk(
+                        bias=False,
+                        fixed_A_G_values=[elasticity_fixed_value],
+                        fixed_A_L_values=None,
+                        metrics=['StrikePrice', 'ContractAmount'],
+                        filename=os.path.join(plots_folder, f'{tornado_file}_fix_AG'),
+                        fix='A_G'
+                    )
+                elif mode == 'A_L':
+                    # Save to local plots
+                    plotter._plot_elasticity_tornado_vs_risk(
+                        bias=False,
+                        fixed_A_G_values=None,
+                        fixed_A_L_values=[elasticity_fixed_value],
+                        metrics=['StrikePrice', 'ContractAmount'],
+                        filename=os.path.join(plots_folder, f'{tornado_file}_fix_AL'),
+                        fix='A_L'
+                    )
+                    # Save to Dropbox figures
+                    plotter._plot_elasticity_tornado_vs_risk(
+                        bias=False,
+                        fixed_A_G_values=None,
+                        fixed_A_L_values=[elasticity_fixed_value],
+                        metrics=['StrikePrice', 'ContractAmount'],
+                        filename=os.path.join(DROPBOX_DIR, f'{tornado_file}_fix_AL'),
+                        fix='A_L'
+                    )
     """
     """ 
     rs_df = sensitivity_results.get('risk_sensitivity')

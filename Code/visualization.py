@@ -56,10 +56,10 @@ class Plotting_Class:
         self.elasticity_vs_risk_df = elasticity_vs_risk_df
         self.bias_risk_elasticity_df = bias_risk_elasticity_df
         # plotting styles
-        self.legendsize = 12
-        self.labelsize = 16
-        self.titlesize = 17
-        self.suptitlesize = 19
+        self.legendsize = 12+2
+        self.labelsize = 16+2
+        self.titlesize = 17+2
+        self.suptitlesize = 19+1
         #self.alpha_sensitivity_df = alpha_sensitivity_df
         #self.alpha_earnings_df = alpha_earnings_df
 
@@ -365,8 +365,8 @@ class Plotting_Class:
                 'title': 'Risk Aversion Sensitivity on Strike Price and Contract Amount',
                 'index_col': 'A_L',
                 'columns_col': 'A_G',
-                'xlabel': 'Risk Aversion $A_G$',
-                'ylabel': 'Risk Aversion $A_L$'
+                'xlabel': 'Risk Aversion $A_S$',
+                'ylabel': 'Risk Aversion $A_B$'
             },
             'price_bias': {
                 'df': self.price_bias_sensitivity_df,
@@ -396,8 +396,12 @@ class Plotting_Class:
         
         # Prepare data
         results = results_df.copy()
+        results = results[results['A_L'].isin([0.1, 0.5, 0.9])]  # Add this line
+        results = results[results['A_G'].isin([0.1, 0.5, 0.9])]  # Add this line
         results['ContractAmount'] = results['ContractAmount'].round(2)
         
+        results
+
         is_pap = self.cm_data.contract_type == "PAP"
         has_gamma = 'Gamma' in results.columns
         
@@ -413,7 +417,7 @@ class Plotting_Class:
         fig, axes = plt.subplots(1, 2, figsize=(12, 5))
         axes = axes.flatten()
         if sensitivity_type == "bias":
-            fig.suptitle(f'{self.cm_data.contract_type}: {cfg["title"]}, $A_G$={self.cm_data.A_G},$A_L$={self.cm_data.A_L}', fontsize=self.suptitlesize)
+            fig.suptitle(f'{self.cm_data.contract_type}: {cfg["title"]}, $A_S$={self.cm_data.A_G},$A_B$={self.cm_data.A_L}', fontsize=self.suptitlesize)
         else:
             fig.suptitle(f'{self.cm_data.contract_type}: {cfg["title"]}', fontsize=self.suptitlesize)
 
@@ -432,10 +436,11 @@ class Plotting_Class:
                     ax=ax,
                     annot=True,
                     cmap="RdYlGn",
-                    cbar=True,
+                    cbar=False,
                     linewidths=0.5,
                     fmt ='.2f',
-                    linecolor='gray'
+                    linecolor='gray',
+                    annot_kws={"size": 16}
                 )
                 """ 
                 # Add custom annotations with units
@@ -1445,7 +1450,9 @@ class Plotting_Class:
         # Convert A_L to object type to allow mixing numbers and strings
         filtered_results['A_L'] = filtered_results['A_L'].astype(str)
         filtered_results = filtered_results.dropna()
-        plot_data = pd.concat([no_contract_df,CP_df,filtered_results], ignore_index=True)
+        #plot_data = pd.concat([no_contract_df,CP_df,filtered_results], ignore_index=True)
+        plot_data = pd.concat([no_contract_df,filtered_results], ignore_index=True)
+
             
         # Define the order for the x-axis categories
         A_L_to_plot = filtered_results['A_L'].unique()
@@ -1455,7 +1462,7 @@ class Plotting_Class:
         contract_mask = plot_data['A_L'] != 'No Contract'
 
         # Create figure with more space at the bottom for the table
-        fig, axes = plt.subplots(1, 2, figsize=(14, 7))
+        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
         ax_G = axes[0]
         ax_L = axes[1]
         
@@ -1620,19 +1627,19 @@ class Plotting_Class:
         #ax_L.axhline(self.cm_data.net_earnings_no_contract_true_L.mean(), linestyle="--", color='grey', label=f"No Contract - Average Earnings: {self.cm_data.net_earnings_no_contract_true_L.mean() :.2f} ")
 
         # Set titles and labels
-        ax_G.set_title(f'Generator Revenue',fontsize=self.titlesize)
+        ax_G.set_title(f'Seller Revenue',fontsize=self.titlesize)
         ax_G.tick_params(axis='both', labelsize= self.legendsize)
-        ax_G.set_xlabel('Risk Aversion Level $(A_L)$',fontsize=self.labelsize)
-        ax_G.set_ylabel('Generator Revenue (Mio EUR)',fontsize=self.labelsize)
+        ax_G.set_xlabel('Risk Aversion $(A_B)$',fontsize=self.labelsize)
+        ax_G.set_ylabel('Seller Revenue (Mio EUR)',fontsize=self.labelsize)
         ax_G.grid(True, linestyle='--', alpha=0.9, axis='y')
 
-        ax_L.set_title(f'Load Revenue',fontsize=self.titlesize)
-        ax_L.set_xlabel('Risk Aversion Level $(A_L)$', fontsize=self.labelsize)
-        ax_L.set_ylabel('Load Revenue (Mio EUR)',fontsize=self.labelsize)
+        ax_L.set_title(f'Buyer Revenue',fontsize=self.titlesize)
+        ax_L.set_xlabel('Risk Aversion $(A_B)$', fontsize=self.labelsize)
+        ax_L.set_ylabel('Buyer Revenue (Mio EUR)',fontsize=self.labelsize)
         ax_L.tick_params(axis='both', labelsize= self.legendsize)
         ax_L.grid(True, linestyle='--', alpha=0.9, axis='y')
 
-        plt.suptitle(f"{self.cm_data.contract_type}: Earnings Distribution by Risk Aversion, $A_G$ = {fixed_A_G}", fontsize=self.suptitlesize)
+        plt.suptitle(f"{self.cm_data.contract_type}: Earnings Distribution by Risk Aversion, $A_S$ = {fixed_A_G}", fontsize=self.suptitlesize)
         
         plt.tight_layout()
 

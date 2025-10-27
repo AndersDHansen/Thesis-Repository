@@ -272,7 +272,7 @@ def main():      # Define simulation parameters
     A_G = 0.5 # Initial risk aversion
     scenario_time_horizon = 20  # Must match the scenarios that were generated
     opt_time_horizon = 20  # Time horizon for optimization (in years)
-    num_scenarios = 5000  # Must match the scenarios that were generated
+    num_scenarios = 500  # Must match the scenarios that were generated
 
 
     # Monte carlo price scenarios 
@@ -339,6 +339,8 @@ def main():      # Define simulation parameters
         prices_df.index = pd.to_datetime(prices_df.index)
         prob_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced.format(type='probabilities')}", index_col=0)
         prob_df = prob_df.values.flatten()
+        #prob_df = np.ones(prices_df.shape[1]) / prices_df.shape[1]
+
 
         CR_df = pd.read_csv(f"Code/scenarios/{scenario_pattern_reduced.format(type='capture_rate')}", index_col=0)
         CR_df.index = pd.to_datetime(CR_df.index)

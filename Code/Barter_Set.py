@@ -20,13 +20,15 @@ class Barter_Set:
         if self.data.contract_type == "PAP":
             #self.BS_strike_min = self.data.SR_star_new #-1*1e-3
             #self.BS_strike_max = self.data.SU_star_new #+ 1*1e-3
-            self.BS_strike_min = self.data.strikeprice_min
-            self.BS_strike_max = self.data.strikeprice_max
+            #self.BS_strike_min = self.data.strikeprice_min
+            #self.BS_strike_max = self.data.strikeprice_max
+            self.BS_strike_min =  self.data.SR_star_new  
+            self.BS_strike_max =  self.data.SU_star_new 
         else:
-            #self.BS_strike_min =  self.data.SR_star_new #-1*1e-3
-            #self.BS_strike_max =  self.data.SU_star_new #+ 1*1e-3
-            self.BS_strike_min = self.data.strikeprice_min-5*1e-3
-            self.BS_strike_max = self.data.strikeprice_max
+            self.BS_strike_min =  self.data.SR_star_new  
+            self.BS_strike_max =  self.data.SU_star_new 
+            #self.BS_strike_min = self.data.strikeprice_min
+            #self.BS_strike_max = self.data.strikeprice_max
         print(f"{self.BS_strike_min*1e3:.4f} EUR/MWh")
         print(f"{self.BS_strike_max*1e3:.4f} EUR/MWh")
 
@@ -250,13 +252,13 @@ class Barter_Set:
             pi_G = self._Revenue_G(S, gamma)
             pi_L = self._Revenue_L(S, gamma)
 
-            mask_G, ord_G, bidx_G, cdf_G = _left_tail_mask(pi_G,self.data.PROB, self.data.alpha)
-            mask_L, ord_L, bidx_L, cdf_L = _left_tail_mask(pi_L, self.data.PROB, self.data.alpha)
+            ord_G, bidx_G = _left_tail_mask(pi_G,self.data.PROB, self.data.alpha)
+            ord_L, bidx_L = _left_tail_mask(pi_L, self.data.PROB, self.data.alpha)
 
             prod = self.data.production.sum()
 
-            tail_G = _left_tail_weighted_sum(self.data.PROB, prod, ord_G, bidx_G, cdf_G, self.data.alpha)
-            tail_L = _left_tail_weighted_sum(self.data.PROB, prod, ord_L, bidx_L, cdf_L, self.data.alpha)
+            tail_G = _left_tail_weighted_sum(self.data.PROB, prod, ord_G, bidx_G, self.data.alpha)
+            tail_L = _left_tail_weighted_sum(self.data.PROB, prod, ord_L, bidx_L, self.data.alpha)
 
             num =  (1-self.data.A_L)*(self.data.PROB * prod).sum() + self.data.A_L * tail_L
             den =  (1-self.data.A_G)*(self.data.PROB * prod).sum() + self.data.A_G * tail_G
@@ -272,8 +274,8 @@ class Barter_Set:
         pi_G = self._Revenue_G(S, gamma)
         pi_L = self._Revenue_L(S, gamma)
 
-        mask_G, ord_G, bidx_G, cdf_G = _left_tail_mask(pi_G,self.data.PROB, self.data.alpha)
-        mask_L, ord_L, bidx_L, cdf_L = _left_tail_mask(pi_L, self.data.PROB, self.data.alpha)
+        ord_G, bidx_G = _left_tail_mask(pi_G,self.data.PROB, self.data.alpha)
+        ord_L, bidx_L = _left_tail_mask(pi_L, self.data.PROB, self.data.alpha)
 
 
         rev_G = (self.data.production_G * (S - self.data.price_G * self.data.capture_rate)).sum(axis=0)
@@ -283,8 +285,8 @@ class Barter_Set:
         expected_G = (self.data.PROB * rev_G.mean()).sum()
         expected_L = (self.data.PROB * rev_L.mean()).sum()
 
-        tail_G = _left_tail_weighted_sum(self.data.PROB, rev_G, ord_G, bidx_G, cdf_G, self.data.alpha)
-        tail_L = _left_tail_weighted_sum(self.data.PROB, rev_L, ord_L, bidx_L, cdf_L, self.data.alpha)
+        tail_G = _left_tail_weighted_sum(self.data.PROB, rev_G, ord_G, bidx_G, self.data.alpha)
+        tail_L = _left_tail_weighted_sum(self.data.PROB, rev_L, ord_L, bidx_L, self.data.alpha)
 
         return ((1-self.data.A_L)*expected_L + self.data.A_L * tail_L)/((1-self.data.A_G)*expected_G + self.data.A_G * tail_G)
 
@@ -384,7 +386,7 @@ class Barter_Set:
         duG_2 = np.gradient(V_2_High[:,0],dx,edge_order=1)
         duL_2 = np.gradient(V_2_High[:,1],dx,edge_order=1)
         slope_2 = duL_2 / duG_2
-        """ 
+        
         fig, axes = plt.subplots(1, 2, figsize=(14, 10))
         ax_1 = axes[0]
         ax_2 = axes[1]
@@ -400,7 +402,7 @@ class Barter_Set:
         else:
             ax_2.axhline(self.dS, color='black', linestyle='--', label='dS Threshold')
         plt.show()
-        """
+   
 
         # Lemma 5 MR (L)
         cvgradientv1_L =  self.cvar_derivative_wrt_M_L(M_space[0],self.data.net_earnings_no_contract_priceL_L, self.data.price_L, self.BS_strike_min, self.data.alpha)
