@@ -55,6 +55,18 @@ class ContractNegotiation:
 
         ################### Calculate basic statistics from loaded scenarios #######
     
+        if self.data.Discount == True:
+            print("Discounting is applied in the calculations.")
+            discount_factors_G = 1 / (1 + self.data.d_G) ** np.arange(len(self.data.TIME))
+            self.data.discount_factors_G_arr = discount_factors_G[:, None]
+
+            discount_factors_L = 1 / (1 + self.data.d_L) ** np.arange(len(self.data.TIME))
+            self.data.discount_factors_L_arr = discount_factors_L[:, None]
+        else:
+            self.data.discount_factors_G_arr = np.ones((len(self.data.TIME),1))
+            self.data.discount_factors_L_arr = np.ones((len(self.data.TIME),1))
+
+
         ####### Prices ########
         mean_price_s = self.data.price_true.mean() # Per scenario across T
         self.data.expected_price = weighted_expected_value(self.data.price_true, self.data.PROB)
@@ -81,13 +93,6 @@ class ContractNegotiation:
         # Per Scenario
         self.data.production_per_scenario = self.data.production.sum(axis=0)
         self.data.expected_production = weighted_expected_value(self.data.production, self.data.PROB)
-
-
-  
-
-      
-
-        
         
         # Calculate biased prices using mean price
         self.data.price_G = (self.data.K_G_price * self.data.expected_price) + self.data.price_true
@@ -111,12 +116,20 @@ class ContractNegotiation:
         self.data.net_earnings_no_contract_priceG_G_df = pd.DataFrame(
             self.data.capture_rate * self.data.production_G * self.data.price_G
         )
-        self.data.net_earnings_no_contract_priceG_G = self.data.net_earnings_no_contract_priceG_G_df.sum(axis=0)
-        
-        # Calculate load earnings with true and biased prices
-        self.data.net_earnings_no_contract_true_L =   (self.data.load_scenarios * (  -  self.data.load_CR * self.data.price_true)).sum(axis=0)
-        self.data.net_earnings_no_contract_priceL_L = (self.data.load_scenarios * (  -  self.data.load_CR *self.data.price_L)).sum(axis=0)
-          # Calculate CVaR for no-contract scenarios
+        #Discount here! 
+        # If discounting is applied, adjust net earnings accordingly
+
+        if self.data.Discount == True:
+            self.data.net_earnings_no_contract_priceG_G =  (self.data.discount_factors_G_arr * self.data.net_earnings_no_contract_priceG_G_df).sum(axis=0)
+            # Calculate load earnings with true and biased prices
+            self.data.net_earnings_no_contract_priceL_L = (self.data.discount_factors_L_arr * (self.data.load_scenarios * (  -  self.data.load_CR *self.data.price_L))).sum(axis=0)
+        else:
+            self.data.net_earnings_no_contract_priceG_G = self.data.net_earnings_no_contract_priceG_G_df.sum(axis=0)
+            # Calculate load earnings with true and biased prices
+            self.data.net_earnings_no_contract_priceL_L = (self.data.load_scenarios * ( -self.data.load_CR *self.data.price_L)).sum(axis=0)
+
+        # Calculate CVaR for no-contract scenarios
+
         self.data.CVaR_no_contract_priceG_G = calculate_cvar_left(self.data.net_earnings_no_contract_priceG_G,self.data.PROB, self.data.alpha)
         self.data.CVaR_no_contract_priceL_L = calculate_cvar_left(self.data.net_earnings_no_contract_priceL_L,self.data.PROB, self.data.alpha)
 
@@ -195,27 +208,51 @@ class ContractNegotiation:
             test_L = conditional_cvar(self.data.lambda_sum_L_per_scenario, self.data.net_earnings_no_contract_priceL_L, self.data.PROB, alpha=self.data.alpha)
             test_L_neg = conditional_cvar(self.data.lambda_sum_L_per_scenario, -self.data.net_earnings_no_contract_priceL_L, self.data.PROB, alpha=self.data.alpha)
             
-            self.data.term1_G_new =(( (1-self.data.A_G) * self.data.expected_lambda_sum_true +self.data.K_G_lambda_Sigma ) + self.data.A_G * neg_tail_G)/ time_periods    # SR* numerator for Gen
-            test_term1 = (( (1-self.data.A_G) * self.data.expected_lambda_sum_true +self.data.K_G_lambda_Sigma ) + self.data.A_G * test_G_neg)/ time_periods    # SR* numerator for Gen
-            # high-price risk (feeds S_U*)
-            self.data.term2_G_new = (((1-self.data.A_G) * self.data.expected_lambda_sum_true + self.data.K_G_lambda_Sigma ) + self.data.A_G * tail_G) / time_periods     # SU* numerator for Gen
-            test_term2 = (((1-self.data.A_G) * self.data.expected_lambda_sum_true + self.data.K_G_lambda_Sigma ) + self.data.A_G * test_G) / time_periods     # SU* numerator for Gen
-            # Load-serving entity ––––––––––––––––––––––––––––––––––––––––––––––
-             # low-price risk (feeds S_R*)
-            self.data.term3_L_SR_new = ( self.data.expected_lambda_sum_true
-                                + self.data.A_L * neg_tail_L
-                            + self.data.K_L_lambda_Sigma  - self.data.A_L * self.data.expected_lambda_sum_true )  / time_periods   # SR* numerator for LSE
-            
-            test_term3 =  ( self.data.expected_lambda_sum_true
-                                + self.data.A_L * test_L_neg
-                            + self.data.K_L_lambda_Sigma  - self.data.A_L * self.data.expected_lambda_sum_true )  / time_periods   # SR* numerator for LSE
-            # high-price risk  (feeds S_U*)
-            self.data.term4_L_SU_new = (self.data.expected_lambda_sum_true
-                            + self.data.A_L * tail_L
-                            + self.data.K_L_lambda_Sigma - self.data.A_L * self.data.expected_lambda_sum_true  ) / time_periods   # SU* numerator for LSE
-            test_term4 = (self.data.expected_lambda_sum_true
-                            + self.data.A_L * test_L
-                            + self.data.K_L_lambda_Sigma - self.data.A_L * self.data.expected_lambda_sum_true  ) / time_periods   # SU* numerator for LSE
+            if self.data.Discount == True:
+                self.data.term1_G_new =(( (1-self.data.A_G) * self.data.expected_lambda_sum_true +self.data.K_G_lambda_Sigma ) + self.data.A_G * neg_tail_G)/ time_periods    # SR* numerator for Gen
+
+                self.data.term2_G_new = (((1-self.data.A_G) * self.data.expected_lambda_sum_true + self.data.K_G_lambda_Sigma ) + self.data.A_G * tail_G) / time_periods     # SU* numerator for Gen
+
+                # low-price risk (feeds S_R*)
+                self.data.term3_L_SR_new = ( self.data.expected_lambda_sum_true
+                                    + self.data.A_L * neg_tail_L
+                                + self.data.K_L_lambda_Sigma  - self.data.A_L * self.data.expected_lambda_sum_true )  / time_periods   # SR* numerator for LSE
+                # high-price risk  (feeds S_U*)
+                self.data.term4_L_SU_new = (self.data.expected_lambda_sum_true
+                                + self.data.A_L * tail_L
+                                + self.data.K_L_lambda_Sigma - self.data.A_L * self.data.expected_lambda_sum_true  ) / time_periods   # SU* numerator for LSE
+                
+                test_term1 = (( (1-self.data.A_G) * self.data.expected_lambda_sum_true +self.data.K_G_lambda_Sigma ) + self.data.A_G * test_G_neg)/ time_periods    # SR* numerator for Gen
+                test_term2 = (((1-self.data.A_G) * self.data.expected_lambda_sum_true + self.data.K_G_lambda_Sigma ) + self.data.A_G * test_G) / time_periods     # SU* numerator for Gen
+                test_term3 =  ( self.data.expected_lambda_sum_true
+                                    + self.data.A_L * test_L_neg
+                                + self.data.K_L_lambda_Sigma  - self.data.A_L * self.data.expected_lambda_sum_true )  / time_periods   # SR* numerator for LSE
+                test_term4 = (self.data.expected_lambda_sum_true
+                                + self.data.A_L * test_L
+                                + self.data.K_L_lambda_Sigma - self.data.A_L * self.data.expected_lambda_sum_true  ) / time_periods   # SU* numerator for LSE
+                
+            else:
+                self.data.term1_G_new =(( (1-self.data.A_G) * self.data.expected_lambda_sum_true +self.data.K_G_lambda_Sigma ) + self.data.A_G * neg_tail_G)/ time_periods    # SR* numerator for Gen
+                test_term1 = (( (1-self.data.A_G) * self.data.expected_lambda_sum_true +self.data.K_G_lambda_Sigma ) + self.data.A_G * test_G_neg)/ time_periods    # SR* numerator for Gen
+                # high-price risk (feeds S_U*)
+                self.data.term2_G_new = (((1-self.data.A_G) * self.data.expected_lambda_sum_true + self.data.K_G_lambda_Sigma ) + self.data.A_G * tail_G) / time_periods     # SU* numerator for Gen
+                test_term2 = (((1-self.data.A_G) * self.data.expected_lambda_sum_true + self.data.K_G_lambda_Sigma ) + self.data.A_G * test_G) / time_periods     # SU* numerator for Gen
+                # Load-serving entity ––––––––––––––––––––––––––––––––––––––––––––––
+                # low-price risk (feeds S_R*)
+                self.data.term3_L_SR_new = ( self.data.expected_lambda_sum_true
+                                    + self.data.A_L * neg_tail_L
+                                + self.data.K_L_lambda_Sigma  - self.data.A_L * self.data.expected_lambda_sum_true )  / time_periods   # SR* numerator for LSE
+                
+                test_term3 =  ( self.data.expected_lambda_sum_true
+                                    + self.data.A_L * test_L_neg
+                                + self.data.K_L_lambda_Sigma  - self.data.A_L * self.data.expected_lambda_sum_true )  / time_periods   # SR* numerator for LSE
+                # high-price risk  (feeds S_U*)
+                self.data.term4_L_SU_new = (self.data.expected_lambda_sum_true
+                                + self.data.A_L * tail_L
+                                + self.data.K_L_lambda_Sigma - self.data.A_L * self.data.expected_lambda_sum_true  ) / time_periods   # SU* numerator for LSE
+                test_term4 = (self.data.expected_lambda_sum_true
+                                + self.data.A_L * test_L
+                                + self.data.K_L_lambda_Sigma - self.data.A_L * self.data.expected_lambda_sum_true  ) / time_periods   # SU* numerator for LSE
 
             # Calculate SR* using Equation (27) - Minimum of the relevant terms
             #self.data.SR_star = np.min([self.data.term1_G, self.data.term2_G, self.data.term3_L_SR])   # Convert from $/GWh to $/MWh
@@ -238,49 +275,58 @@ class ContractNegotiation:
 
             #self.data.strikeprice_min = self.data.SR_star_new + 1e-3  # Add a small epsilon to avoid numerical issues
             #self.data.strikeprice_max = self.data.SR_star_new + 1e-3
-            #self.data.SR_star_new  = test_SR
 
-            #self.data.SU_star_new = test_SU
+            production_G = self.data.production_G
+            price_G = self.data.price_G
+            capture_rate = self.data.capture_rate
+            production_L = self.data.production_L
+            price_L = self.data.price_L
+            capture_rate_L = self.data.capture_rate
+            load_CR = self.data.load_CR
+            load_scenarios = self.data.load_scenarios
 
-
+            
             def constraint_S_star_G(x):
-                S_star = _calculate_S_star_BL_G(x  , M,self.data.A_G, self.data.alpha, self.data.production_G, self.data.price_G,self.data.capture_rate,self.data.PROB)
-                #print(f"Calculated S_star_G: {S_star}")
+                S_star = _calculate_S_star_BL_G(
+                    x, M, self.data.A_G, self.data.alpha,
+                    production_G, price_G, capture_rate, self.data.PROB,
+                    discount_rate=self.data.d_G, n_time=len(self.data.TIME)
+                )
                 return S_star
 
             def constraint_S_star_L(x):
-                S_star = _calculate_S_star_BL_L(x, M,self.data.A_L, self.data.alpha, self.data.production_L, self.data.price_L,self.data.capture_rate,self.data.load_CR,self.data.load_scenarios,self.data.PROB)
-               #print(f"Calculated S_star_L: {S_star}")
+                S_star = _calculate_S_star_BL_L(
+                    x, M, self.data.A_L, self.data.alpha,
+                    production_L, price_L, capture_rate_L, load_CR, load_scenarios, self.data.PROB,
+                    discount_rate=self.data.d_L, n_time=len(self.data.TIME)
+                )
                 return S_star
 
             nonlinear_constraint_S_star_G = NonlinearConstraint(constraint_S_star_G, 0, np.inf)
             nonlinear_constraint_S_star_L = NonlinearConstraint(constraint_S_star_L, 0, np.inf)
 
-            # Define bounds for S (e.g., strike price range)
             bounds = [(self.data.strikeprice_min, self.data.strikeprice_max)]
+            initial_guess = (self.data.strikeprice_max / 2)
+            initial_guess_L = (self.data.strikeprice_max)
+            M = 119.88
 
-            # Initial guess for S
-            initial_guess = (self.data.strikeprice_max/2 ) 
-            initial_guess_L = (self.data.strikeprice_max) 
-
-            M =119.88
             result_G = minimize(
                 _calculate_S_star_BL_G,
                 x0=initial_guess,
-                args=(M,self.data.A_G, self.data.alpha, self.data.production_G, self.data.price_G,self.data.capture_rate,self.data.PROB),
+                args=(M, self.data.A_G, self.data.alpha, production_G, price_G, capture_rate, self.data.PROB),
                 bounds=bounds,
                 constraints=[nonlinear_constraint_S_star_G],
                 method='trust-constr',
-                options={'disp': False, 'maxiter': 1000,'gtol': 1e-6,}
+                options={'disp': False, 'maxiter': 1000, 'gtol': 1e-6,}
             )
             result_L = minimize(
                 _calculate_S_star_BL_L,
                 x0=initial_guess_L,
-                args=(M,self.data.A_L, self.data.alpha, self.data.production_L, self.data.price_L,self.data.capture_rate,self.data.load_CR,self.data.load_scenarios,self.data.PROB),
+                args=(M, self.data.A_L, self.data.alpha, production_L, price_L, capture_rate_L, load_CR, load_scenarios, self.data.PROB),
                 bounds=bounds,
                 constraints=[nonlinear_constraint_S_star_L],
                 method='trust-constr',
-                options={'disp': False, 'maxiter': 1000,'gtol': 1e-6,}
+                options={'disp': False, 'maxiter': 1000, 'gtol': 1e-6,}
             )
 
             # Optimal strike price
@@ -487,11 +533,12 @@ class ContractNegotiation:
             -load_scenarios_array *  load_CR_array * price_L_array
         ).sum(axis=0)  # Sum over time for each scenario
 
+
         # Batch create eta_G constraints
         self.constraints.eta_G_constraint = self.model.addConstrs(
         (self.variables.eta_G[s] >= 
-         self.variables.zeta_G - (generator_const_per_scenario[s] + 
-         gp.quicksum((self.variables.S - price_G_array[t,s]) * self.variables.M 
+         self.variables.zeta_G - (self.data.discount_factors_G_arr * generator_const_per_scenario[s] + 
+         gp.quicksum(self.data.discount_factors_G_arr[t] * (self.variables.S - price_G_array[t,s]) * self.variables.M 
                      for t in self.data.TIME))
          for s in self.data.SCENARIOS_L),
         name='Eta_Aversion_Constraint_G'
@@ -500,8 +547,8 @@ class ContractNegotiation:
     # Batch create eta_L constraints  
         self.constraints.eta_L_constraint = self.model.addConstrs(
         (self.variables.eta_L[s] >= 
-         self.variables.zeta_L - (load_const_per_scenario[s] + 
-         gp.quicksum((price_L_array[t,s] - self.variables.S) * self.variables.M 
+         self.variables.zeta_L - (self.data.discount_factors_L_arr * load_const_per_scenario[s] + 
+         gp.quicksum(self.data.discount_factors_L_arr[t] * (price_L_array[t,s] - self.variables.S) * self.variables.M 
                      for t in self.data.TIME))
          for s in self.data.SCENARIOS_L),
         name='Eta_Aversion_Constraint_L'
@@ -704,11 +751,11 @@ class ContractNegotiation:
         # Build expressions using pre-computed coefficients
         EuG = (gen_revenue_const + 
             S_coeff_G * self.variables.S * self.variables.M + 
-            M_coeff_G * self.variables.M)
+            M_coeff_G * self.variables.M) * self.data.discount_factors_G_arr
 
         EuL = (load_revenue_const + 
             S_coeff_L * self.variables.S * self.variables.M + 
-            M_coeff_L * self.variables.M)
+            M_coeff_L * self.variables.M) * self.data.discount_factors_L_arr
 
         # CVaR calculations
         CVaRG = self.variables.zeta_G - (1/(1-self.data.alpha)) * eta_G_sum

@@ -266,29 +266,35 @@ def save_results_to_csv(results_dict, contract_type,time_horizon, num_scenarios)
 
  
 def main():      # Define simulation parameters
-    
-    global A_L , A_G, boundary, sensitivity , Barter, scenario_time_horizon, opt_time_horizon, monte_price
+
+    global A_L , A_G, d_G,d_L, boundary, sensitivity , Barter, scenario_time_horizon, opt_time_horizon, monte_price
     A_L = 0.5  # Initial risk aversion
     A_G = 0.5 # Initial risk aversion
     scenario_time_horizon = 20  # Must match the scenarios that were generated
     opt_time_horizon = 20  # Time horizon for optimization (in years)
     num_scenarios = 500  # Must match the scenarios that were generated
+    d_G = 0.0  # Generator discount rate
+    d_L = 0.0  # Load generator discount rate
 
 
-    # Monte carlo price scenarios 
-    monte_price = False
+    # Bool Statements 
+    monte_price = False # Monte carlo price scenarios 
+    Barter = True  # Whether to relax the problem (Mc Cormick's relaxation)
+    boundary = False  # Deprecated flag (use selected_analyses to include boundary_* if desired)
+    sensitivity = False  # Whether to run sensitivity analyses at all
+    Discount = F  # Whether to include discounting in the objective function
+
+
+
     tau_L = 0.5  # Asymmetry of power between load generator [0,1]
     tau_G = 1-tau_L  # Asymmetry of power between generation provider [0,1] - 1-tau_L
-    Barter = True  # Whether to relax the problem (Mc Cormick's relaxation)
     contract_type = "Baseload" # Either "Baseload" or "PAP"
-    sensitivity = False  # Whether to run sensitivity analyses at all
     # Choose which analyses to run; leave empty to run all when sensitivity=True
     #selected_analyses: list[str] = ["capture_price", "negotiation_vs_risk","risk","price_bias","production_bias",]
     selected_analyses: list[str] = ['elasticity_vs_risk']
 
     num_sensitivity = 5 # Number of sensitivity analysis points for tau_L and tau_G ( and A_G and A_L)  
     # Boundary analysis only on 20 years
-    boundary = False  # Deprecated flag (use selected_analyses to include boundary_* if desired)
     print("Loading data and preparing for simulation...")
     input_data = load_data(
         opt_time_horizon=opt_time_horizon,
@@ -297,7 +303,10 @@ def main():      # Define simulation parameters
         A_L=A_L,
         tau_L=tau_L,
         tau_G=tau_G,
+        d_G=d_G,
+        d_L=d_L,
         Barter=Barter,
+        Discount=Discount,
         contract_type=contract_type
     )    # InputData object is now created in load_data()    # Define risk aversion parameters for both objective functions
     params = {

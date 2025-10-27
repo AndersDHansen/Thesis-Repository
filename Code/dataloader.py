@@ -27,12 +27,15 @@ class InputData:
         A_G: float,
         tau_L: float,
         tau_G: float,  
+        d_G: float,
+        d_L: float,
         K_L_price: float, 
         K_G_price: float,
         K_L_prod: float,
         K_G_prod: float,
         alpha: float,
         Barter: bool,
+        Discount: bool,
         contract_type: str,
     ):
         # Basic system parameters
@@ -57,6 +60,8 @@ class InputData:
         self.A_G = A_G
         self.tau_L = tau_L
         self.tau_G = tau_G
+        self.d_G = d_G
+        self.d_L = d_L
         self.K_L_price = K_L_price
         self.K_G_price = K_G_price
         self.K_L_prod = K_L_prod
@@ -65,6 +70,7 @@ class InputData:
 
         #Contract type and relaxation for modelling 
         self.Barter = Barter
+        self.Discount = Discount
         self.contract_type = contract_type
 
     def load_data_from_provider(self, provider):
@@ -106,8 +112,8 @@ class InputData:
         return 
 
 def load_data(opt_time_horizon: int, num_scenarios: int, A_G: float, A_L: float, 
-              tau_L: float, tau_G: float, Barter: bool = True, 
-              contract_type: str = "baseload") -> InputData:
+              tau_L: float, tau_G: float, d_G: float, d_L: float, Barter: bool = True, 
+              Discount: bool = True, contract_type: str = "baseload") -> InputData:
     """Load system data and create initial parameters."""
     
     # Time parameters - these will be overwritten by load_data_from_provider
@@ -149,12 +155,15 @@ def load_data(opt_time_horizon: int, num_scenarios: int, A_G: float, A_L: float,
         A_G=A_G,
         tau_L=tau_L,
         tau_G=tau_G,
+        d_G = d_G,
+        d_L = d_L,
         K_L_price=K_L,
         K_G_price=K_G,
         K_L_prod=K_L,
         K_G_prod=K_G,
         alpha=alpha,
         Barter=Barter,
+        Discount = Discount,
         contract_type=contract_type
     )
     
