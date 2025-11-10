@@ -273,16 +273,15 @@ def main():      # Define simulation parameters
     scenario_time_horizon = 20  # Must match the scenarios that were generated
     opt_time_horizon = 20  # Time horizon for optimization (in years)
     num_scenarios = 500  # Must match the scenarios that were generated
-    d_G = 0.0  # Generator discount rate
-    d_L = 0.0  # Load generator discount rate
+    d_G = 0.03  # Generator discount rate
+    d_L = 0.04  # Load generator discount rate
 
-
-    # Bool Statements 
-    monte_price = False # Monte carlo price scenarios 
+    # Bool Statements
+    monte_price = False  # Monte carlo price scenarios
     Barter = True  # Whether to relax the problem (Mc Cormick's relaxation)
     boundary = False  # Deprecated flag (use selected_analyses to include boundary_* if desired)
     sensitivity = False  # Whether to run sensitivity analyses at all
-    Discount = F  # Whether to include discounting in the objective function
+    Discount = True  # Whether to include discounting in the objective function
 
 
 

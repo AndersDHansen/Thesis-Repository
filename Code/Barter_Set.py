@@ -25,8 +25,8 @@ class Barter_Set:
             self.BS_strike_min =  self.data.SR_star_new  
             self.BS_strike_max =  self.data.SU_star_new 
         else:
-            self.BS_strike_min =  self.data.SR_star_new  
-            self.BS_strike_max =  self.data.SU_star_new 
+            self.BS_strike_min =  self.data.SR_star_new - 5*1e-3 
+            self.BS_strike_max =  self.data.SU_star_new + 5*1e-3
             #self.BS_strike_min = self.data.strikeprice_min
             #self.BS_strike_max = self.data.strikeprice_max
         print(f"{self.BS_strike_min*1e3:.4f} EUR/MWh")
@@ -62,8 +62,8 @@ class Barter_Set:
             M_plus = M_base + epsilon
             M_minus = M_base - epsilon
 
-            rev_plus = (M_plus * (price_matrix - strike)).sum(axis=0)
-            rev_minus = (M_minus * (price_matrix - strike)).sum(axis=0)
+            rev_plus = (self.data.discount_factors_L_arr * M_plus * (price_matrix - strike)).sum(axis=0)
+            rev_minus = (self.data.discount_factors_L_arr * M_minus * (price_matrix - strike)).sum(axis=0)
 
             cvar_plus = calculate_cvar_left(earnings_base + rev_plus,self.data.PROB, self.data.alpha)
             cvar_minus = calculate_cvar_left(earnings_base + rev_minus, self.data.PROB, self.data.alpha)
@@ -97,8 +97,8 @@ class Barter_Set:
             M_plus = M_base + epsilon
             M_minus = M_base - epsilon
 
-            rev_plus = (M_plus * (strike - price_matrix)).sum(axis=0)
-            rev_minus = (M_minus * (strike - price_matrix)).sum(axis=0)
+            rev_plus = (self.data.discount_factors_G_arr * M_plus * (strike - price_matrix)).sum(axis=0)
+            rev_minus = (self.data.discount_factors_G_arr * M_minus * (strike - price_matrix)).sum(axis=0)
 
             cvar_plus = calculate_cvar_left(earnings_base + rev_plus,self.data.PROB, alpha)
             cvar_minus = calculate_cvar_left(earnings_base + rev_minus,self.data.PROB,alpha)
@@ -129,12 +129,12 @@ class Barter_Set:
             M_plus = M_base + epsilon
             M_minus = M_base - epsilon
 
-            rev_plus = ((M_plus ) * (( price_matrix) - (strike ))).sum(axis=0)
-            rev_minus =((M_minus ) * (( price_matrix) - (strike ))).sum(axis=0)
+            rev_plus = (self.data.discount_factors_L_arr * M_plus * (price_matrix - strike)).sum(axis=0)
+            rev_minus = (self.data.discount_factors_L_arr * M_minus * (price_matrix - strike)).sum(axis=0)
 
             # Calculate expected earnings for M_plus and M_minus
-            expected_plus = (self.data.PROB*(earnings_base + rev_plus)).sum()
-            expected_minus = (self.data.PROB*(earnings_base + rev_minus)).sum()
+            expected_plus = (self.data.PROB * (earnings_base + rev_plus)).sum()
+            expected_minus = (self.data.PROB * (earnings_base + rev_minus)).sum()
 
 
         # Return the finite difference approximation of the derivative
@@ -162,11 +162,11 @@ class Barter_Set:
             M_plus  = M_base  + epsilon
             M_minus = M_base - epsilon
 
-            rev_plus = ( M_plus*((strike) - price_matrix)).sum(axis=0)
-            rev_minus = ( M_minus* ((strike)  - price_matrix)).sum(axis=0)
+            rev_plus = (self.data.discount_factors_G_arr * M_plus * (strike - price_matrix)).sum(axis=0)
+            rev_minus = (self.data.discount_factors_G_arr * M_minus * (strike - price_matrix)).sum(axis=0)
 
-            expected_plus = (self.data.PROB*(earnings_base + rev_plus)).sum()
-            expected_minus = (self.data.PROB*(earnings_base + rev_minus)).sum()
+            expected_plus = (self.data.PROB * (earnings_base + rev_plus)).sum()
+            expected_minus = (self.data.PROB * (earnings_base + rev_minus)).sum()
 
 
         # Calculate expected earnings for M_plus and M_minus
@@ -188,12 +188,11 @@ class Barter_Set:
             CVaR_G = calculate_cvar_left(earnings,self.data.PROB, self.data.alpha) 
         
         else:
-            rev_contract = volume  * (strike - self.data.price_G)
-            rev_contract_total = rev_contract.sum(axis=0)
-            no_contract = self.data.net_earnings_no_contract_priceG_G 
-        
-            earnings = no_contract + rev_contract_total
-        
+            rev_contract = (self.data.discount_factors_G_arr * volume * (strike - self.data.price_G)).sum(axis=0)
+            no_contract = self.data.net_earnings_no_contract_priceG_G
+
+            earnings = no_contract + rev_contract
+
             CVaR_G = calculate_cvar_left(earnings,self.data.PROB, self.data.alpha)
 
         Utility = (1 - self.data.A_G) * (self.data.PROB * earnings).sum() + self.data.A_G * CVaR_G
@@ -210,10 +209,10 @@ class Barter_Set:
             earnings = EuL + SML
             CVaR_L = calculate_cvar_left(earnings,self.data.PROB, self.data.alpha)
         else:
-            rev_contract = (volume * (self.data.price_L - strike)).sum(axis=0)
-            no_conctract = self.data.net_earnings_no_contract_priceL_L
+            rev_contract = (self.data.discount_factors_L_arr * volume * (self.data.price_L - strike)).sum(axis=0)
+            no_contract = self.data.net_earnings_no_contract_priceL_L
 
-            earnings = no_conctract + rev_contract
+            earnings = no_contract + rev_contract
 
         CVaR_L = calculate_cvar_left(earnings,self.data.PROB, self.data.alpha)
 
@@ -228,7 +227,7 @@ class Barter_Set:
             pi_G = ((1-volume) * self.data.production_G * self.data.price_G * self.data.capture_rate + 
                     volume * self.data.production_G * strike).sum(axis=0)
         else: 
-            pi_G = self.data.net_earnings_no_contract_priceG_G + (volume * (strike - self.data.price_G)).sum(axis=0)
+            pi_G = self.data.net_earnings_no_contract_priceG_G + (self.data.discount_factors_G_arr * volume * (strike - self.data.price_G)).sum(axis=0)
         return pi_G
 
     def _Revenue_L(self, strike, volume):
@@ -240,7 +239,7 @@ class Barter_Set:
             SML = (volume * self.data.production_L * (self.data.price_L * self.data.capture_rate - strike)).sum(axis=0)
             pi_L = EuL + SML
         else:
-            pi_L = self.data.net_earnings_no_contract_priceL_L + (volume * (self.data.price_L - strike)).sum(axis=0)
+            pi_L = self.data.net_earnings_no_contract_priceL_L + (self.data.discount_factors_L_arr * volume * (self.data.price_L - strike)).sum(axis=0)
         return pi_L
     
     def _dS_PAP(self,S,gamma):
@@ -289,8 +288,6 @@ class Barter_Set:
         tail_L = _left_tail_weighted_sum(self.data.PROB, rev_L, ord_L, bidx_L, self.data.alpha)
 
         return ((1-self.data.A_L)*expected_L + self.data.A_L * tail_L)/((1-self.data.A_G)*expected_G + self.data.A_G * tail_G)
-
-
         
     def Plotting_Barter_Set_Lemma2(self,plotting=True):
         """
@@ -301,8 +298,8 @@ class Barter_Set:
             M_fixed = 1 # [0,1] for PAP
         else:
             M_fixed = 0.5 * (self.data.contract_amount_min + self.data.contract_amount_max)
-        
-        S_space = np.linspace(self.BS_strike_min, self.BS_strike_max, self.n)
+
+        S_space = np.linspace(self.BS_strike_min-3*1e-3, self.BS_strike_max+3*1e-3, self.n)
 
         V_Lemma2 = np.zeros((self.n, 2))
         for i, S in enumerate(S_space):
@@ -328,7 +325,14 @@ class Barter_Set:
             print(f"Theoretical Slope of Lemma 2 should be:{theo_slope:.4f}")
   
         else:
-            print(f"Theoretical Slope of Lemma 2 should be:{-1:f}")
+            if self.data.Discount == True:
+                t = np.arange(self.data.n_time)  # Remove the +1
+                lem_2_L = (1 / ((1 + self.data.d_L) ** t)).sum()  # Add back the 1/
+                lem_2_G = (1 / ((1 + self.data.d_G) ** t)).sum()  # Add back the 1/
+                slope_theo = -lem_2_L / lem_2_G  # Keep negative sign
+                print(f"Theoretical Slope of Lemma 2 should be:{-slope_theo:.4f}")
+            else:
+                print(f"Theoretical Slope of Lemma 2 should be:{-1:f}")
         
 
         if plotting == True:
@@ -755,7 +759,6 @@ class Barter_Set:
         plt.grid(True, alpha=0.3)
         plt.show()
 
-
     def plot_barter_curve(self,MR_point, MU_point, utility_opt,):
         """
         Plot a curve through MR point, disagreement point, and MU point.
@@ -889,10 +892,7 @@ class Barter_Set:
                 ]
 
         _focus_axes_on_points(ax, x_pts, y_pts, pad_frac=0.12, min_pad=5)
-
-        
-
-    
+  
     def plot_utility_cvar_vs_M(self, strike_price='min'):
         """
         Diagnostic plot: show how Expected, CVaR, and Utility evolve with contract amount M

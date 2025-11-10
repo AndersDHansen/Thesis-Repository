@@ -431,69 +431,65 @@ def _calculate_S_star_PAP_L(x,gamma,A,alpha, production,price,capture_rate,load_
 
     return S_star
 
-def _calculate_S_star_BL_G(x, M, A, alpha, production, price, capture_rate, PROB, discount_rate=None, n_time=None):
-    """
-    Calculate the optimal strike price S* for the Producer-side in PAP, with optional discounting.
-    """
+def _calculate_S_star_BL_G(x, M, A, alpha, production, price, capture_rate, PROB, direction, discount_rate=None, n_time=None):
+    """Calculate optimal strike price S* for Generator-side in Baseload."""
     S = x[0]
-    # Assume production, price, capture_rate are shape (T, S)
-    if discount_rate is not None and n_time is not None:
-        # Create discount factors for each time period
-        discount_factors = 1 / (1 + discount_rate) ** np.arange(n_time)
-        discount_factors = discount_factors[:, None]  # shape (T, 1) for broadcasting
-    else:
-        discount_factors = 1  # No discounting
+    
+    # Base revenue without contract
+    discount_factors_G = 1 / (1 + discount_rate) ** np.arange(n_time)
+    discount_factors_G_arr = discount_factors_G[:, None]
+    pi_G_base = (production * price * capture_rate * discount_factors_G_arr).sum(axis=0)
 
-    # Discounted (S - price)*M term for each time period
-    discounted_S_minus_price_M = (S - price) * M * discount_factors
-
-    # Discount other terms as needed
-    discounted_production_price_capture = production * price * capture_rate * discount_factors
-
-    # Calculate pi_G with discounting
-    pi_G = (discounted_production_price_capture + discounted_S_minus_price_M).sum(axis=0)
-
-    ord_G, bidx_G = _left_tail_mask(pi_G, PROB, alpha)
-
-    rev_G = (-M * price * discount_factors).sum(axis=0)
-    expected_G = (PROB * rev_G).sum()
-    test = weighted_expected_value(rev_G, PROB)
-
-    tail_G = _left_tail_weighted_sum(PROB, pi_G, ord_G, bidx_G, alpha)
-    # Calculate S_star
-    S_star = (1 - A) * expected_G + A * tail_G
+    # Contract revenue
+    contract_rev = (M * (S - price) * discount_factors_G_arr).sum(axis=0)
+    
+    # Get masks for both positive and negative tails
+    ord_G, bidx_G = _left_tail_mask(pi_G_base, PROB, alpha)
+    neg_ord_G, neg_bidx_G = _left_tail_mask(-pi_G_base, PROB, alpha)
+    
+    # Expected value
+    expected_G = (PROB * contract_rev).sum()
+    
+    # CVaR terms (matching your analytical solution)
+    tail_G = _left_tail_weighted_sum(PROB, contract_rev, ord_G, bidx_G, alpha)
+    neg_tail_G = _left_tail_weighted_sum(PROB, contract_rev, neg_ord_G, neg_bidx_G, alpha)
+    
+    # Match your analytical formula
+    if direction > 0:  # For S^U
+        S_star = ((1-A) * expected_G + A * tail_G) / n_time
+    else:  # For S^R
+        S_star = ((1-A) * expected_G + A * neg_tail_G) / n_time
 
     return S_star
 
-def _calculate_S_star_BL_L(
-    x, M, A, alpha, production, price, capture_rate, load_CR, load_scenarios, PROB,
-    discount_rate=None, n_time=None
-):
-    """
-    Calculate the optimal strike price S* for the Load-side in Baseload contract, with optional discounting.
-    """
+def _calculate_S_star_BL_L(x, M, A, alpha, price, load_CR, load_scenarios, PROB, direction, discount_rate=None, n_time=None):
+    """Calculate optimal strike price S* for Load-side in Baseload."""
     S = x[0]
-    # Assume all arrays are shape (T, S)
-    if discount_rate is not None and n_time is not None:
-        discount_factors = 1 / (1 + discount_rate) ** np.arange(n_time)
-        discount_factors = discount_factors[:, None]  # shape (T, 1) for broadcasting
-    else:
-        discount_factors = 1  # No discounting
+    #Discount Rate
+    discount_factors_L = 1 / (1 + discount_rate) ** np.arange(n_time)
+    discount_factors_L_arr = discount_factors_L[:, None]
+    # Base cost without contract
+    pi_L_base = (-price * load_CR * load_scenarios * discount_factors_L_arr).sum(axis=0)
 
-    # Discounted terms
-    discounted_load_term = -load_scenarios * load_CR * price * discount_factors
-    discounted_MS_term = ((price - S) * M) * discount_factors
+    # Contract cost
+    contract_cost = (M * (price - S) * discount_factors_L_arr).sum(axis=0)
 
-    # Calculate pi_L with discounting
-    pi_L = discounted_load_term.sum(axis=0) + discounted_MS_term.sum(axis=0)
-
-    ord_L, bidx_L = _left_tail_mask(pi_L, PROB, alpha)
-
-    rev_L = (M * price * discount_factors).sum(axis=0)
-    expected_L = (PROB * rev_L).sum()
-    tail_L = _left_tail_weighted_sum(PROB, pi_L, ord_L, bidx_L, alpha)
-    # Calculate S_star
-    S_star = (1 - A) * expected_L + A * tail_L
+    # Get masks for both positive and negative tails
+    ord_L, bidx_L = _left_tail_mask(pi_L_base, PROB, alpha)
+    neg_ord_L, neg_bidx_L = _left_tail_mask(-pi_L_base, PROB, alpha)
+    
+    # Expected value
+    expected_L = (PROB * contract_cost).sum()
+    
+    # CVaR terms (matching your analytical solution)
+    tail_L = _left_tail_weighted_sum(PROB, contract_cost, ord_L, bidx_L, alpha)
+    neg_tail_L = _left_tail_weighted_sum(PROB, contract_cost, neg_ord_L, neg_bidx_L, alpha)
+    
+  # Match your analytical formula
+    if direction > 0:  # For S^U
+        S_star = ((1-A) * expected_L + A * tail_L) / n_time
+    else:  # For S^R
+        S_star = ((1-A) * expected_L + A * neg_tail_L) / n_time
 
     return S_star
 
