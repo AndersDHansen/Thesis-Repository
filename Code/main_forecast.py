@@ -273,8 +273,8 @@ def main():      # Define simulation parameters
     scenario_time_horizon = 20  # Must match the scenarios that were generated
     opt_time_horizon = 20  # Time horizon for optimization (in years)
     num_scenarios = 500  # Must match the scenarios that were generated
-    d_G = 0.03  # Generator discount rate
-    d_L = 0.04  # Load generator discount rate
+    d_G = 0.00  # Generator discount rate
+    d_L = 0.00  # Load generator discount rate
 
     # Bool Statements
     monte_price = False  # Monte carlo price scenarios
@@ -285,7 +285,7 @@ def main():      # Define simulation parameters
 
 
 
-    tau_L = 0.5  # Asymmetry of power between load generator [0,1]
+    tau_L = 1  # Asymmetry of power between load generator [0,1]
     tau_G = 1-tau_L  # Asymmetry of power between generation provider [0,1] - 1-tau_L
     contract_type = "Baseload" # Either "Baseload" or "PAP"
     # Choose which analyses to run; leave empty to run all when sensitivity=True

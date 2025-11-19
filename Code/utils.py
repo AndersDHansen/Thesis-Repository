@@ -116,84 +116,6 @@ def weighted_expected_value(arr, scenario_probs):
         expected_value = np.sum(scenario_totals * scenario_probs) / arr.shape[0]  # Average over time
     return expected_value
 
-def get_worst_case_mask(z, probabilities, alpha=0.95):
-    """
-    Identify scenarios in the worst (1-alpha)% tail of z.
-    
-    Parameters:
-    -----------
-    z : array-like
-        Values to determine worst cases (e.g., z = x * y)
-    probabilities : array-like
-        Probability of each scenario
-    alpha : float
-        Confidence level (e.g., 0.95 means worst 5%)
-    
-    Returns:
-    --------
-    mask : boolean array
-        True for scenarios in the worst tail
-    """
-    z = np.asarray(z, dtype=float).ravel()
-    probs = np.asarray(probabilities, dtype=float).ravel()
-    probs = probs / probs.sum()  # Normalize
-    
-    tail_mass = 1.0 - alpha  # Probability mass in the tail
-    
-    # Sort by z values (worst to best)
-    order = np.argsort(z)
-    probs_sorted = probs[order]
-    
-    # Cumulative probability
-    cdf = np.cumsum(probs_sorted)
-    
-    # Find where cumulative probability reaches tail_mass
-    boundary_idx = np.searchsorted(cdf, tail_mass, side='right')
-    
-    # Create mask for tail scenarios
-    mask = np.zeros(len(z), dtype=bool)
-    mask[order[:boundary_idx]] = True
-    
-    return mask
-
-
-def conditional_cvar(x, z, probabilities, alpha=0.95):
-    """
-    Calculate CVaR of x conditional on z being in its worst tail.
-    
-    Parameters:
-    -----------
-    x : array-like
-        Variable to calculate CVaR for
-    z : array-like
-        Variable that determines worst-case scenarios (e.g., z = x * y)
-    probabilities : array-like
-        Probability of each scenario
-    alpha : float
-        Confidence level
-    
-    Returns:
-    --------
-    float : Conditional CVaR of x given z is in worst tail
-    """
-    x = np.asarray(x, dtype=float).ravel()
-    probs = np.asarray(probabilities, dtype=float).ravel()
-    probs = probs / probs.sum()
-    
-    # Get worst-case scenarios based on z
-    tail_mask = get_worst_case_mask(z, probs, alpha)
-    
-    # Extract x values and probabilities for tail scenarios
-    x_tail = x[tail_mask]
-    probs_tail = probs[tail_mask]
-    
-    # Calculate probability-weighted CVaR of x in the tail
-    cvar_x = np.sum(x_tail * probs_tail) / np.sum(probs_tail)
-    
-    return cvar_x
-
-
-
 def calculate_cvar_right(earnings: np.ndarray, alpha: float) -> float:
     """Calculate the Conditional Value at Risk (CVaR) for given earnings.
     
@@ -230,9 +152,6 @@ def calculate_cvar_left_simple(earnings: np.ndarray, alpha: float) -> float:
     left_tail = earnings_sorted[earnings_sorted <= var_threshold]
     cvar = np.mean(left_tail)
     return cvar
-
-
-
 
 
 def calculate_cvar_left(earnings: np.ndarray, probabilities: pd.DataFrame, alpha: float) -> float:
@@ -369,21 +288,64 @@ def _left_tail_weighted_sum(probabilities, values,
 
     return cvar
 
-    """
 
-    # Calculate fractional weight needed from boundary scenario
-    prob_before = cdf[boundary_idx - 1] if boundary_idx > 0 else 0.0
-    need = max(0.0, tail_prob - prob_before)  # Fractional weight for boundary
-    
-    # Sum full scenarios before boundary
-    total = np.dot(probs_sorted[:boundary_idx], values_sorted[:boundary_idx])
-    
-    # Add fractional contribution from boundary scenario
-    if boundary_idx < len(values_sorted) and need > 0:
-        total += values_sorted[boundary_idx] * need
-    
-    return total
+def compute_cvar_derivative_mixed(M, S, production_scenarios, CR_scenarios, 
+                                   price_scenarios, discount_factors, probabilities, alpha):
     """
+    Compute dCVaR/dM for regime (iii) where generator has mixed long/short positions.
+    
+    Parameters:
+    -----------
+    M : float
+        Contract amount (MW)
+    S : float
+        Strike price ($/MWh)
+    production_scenarios : np.ndarray
+        Array of shape (n_scenarios, T) with production levels P^G_t 
+        Example: (20, 500) for 20 scenarios over 500 hours
+    CR_scenarios : np.ndarray
+        Array of shape (n_scenarios, T) with capture rates CR^G_t
+        Example: (20, 500)
+    price_scenarios : np.ndarray
+        Array of shape (n_scenarios, T) with spot prices λ_t
+        Example: (20, 500)
+    discount_factors : np.ndarray
+        Array of shape (T,) with discount factors for each time period
+    probabilities : np.ndarray
+        Array of shape (n_scsenarios,) with probability of each scenario
+        Example: (20,) - must sum to 1.0
+    alpha : float
+        Confidence level for CVaR (e.g., 0.95 for 95% CVaR)
+    
+    Returns:
+    --------
+    float
+        The derivative dCVaR(π_G)/dM evaluated at the given M and S
+    """
+    
+    # Normalize probabilities to ensure they sum to 1
+    probabilities = np.asarray(probabilities, dtype=float)    
+    # Step 1: Calculate generator profits for all scenarios
+    # π_G(M,S,ω) = Σ_t [P^G_t · CR^G_t · λ_t + (S - λ_t) · M]
+    # Element-wise multiplication: (n_scenarios, T) * (n_scenarios, T) = (n_scenarios, T)
+    actual_production = production_scenarios * CR_scenarios  
+    
+    # Sum over TIME (axis=1): (n_scenarios, T) → (n_scenarios,)
+    spot_revenue = np.sum(actual_production * price_scenarios * discount_factors, axis=0)  
+    contract_payoff = np.sum((S - price_scenarios)*discount_factors * M ,axis=0) 
+    profits = (spot_revenue + contract_payoff) 
+    
+    # Step 2: Identify the left tail using probability-weighted quantiles
+    order, boundary_idx = _left_tail_mask(profits, probabilities, alpha)
+
+    # Derivative per scenario: sum_t (S - lambda_t) * discount_factors_t
+    derivative_per_scenario = np.sum(( price_scenarios) * discount_factors, axis=0)
+    
+    # Use helper to compute weighted sum over the left tail (handles fractional boundary)
+    tail_derivative = _left_tail_weighted_sum(probabilities, derivative_per_scenario, order, boundary_idx, alpha)
+
+    return tail_derivative
+
 
 def _right_tail_mask(arr, alpha):
     var_threshold_lower = np.percentile(arr, (1-alpha)*100)
@@ -492,7 +454,6 @@ def _calculate_S_star_BL_L(x, M, A, alpha, price, load_CR, load_scenarios, PROB,
         S_star = ((1-A) * expected_L + A * neg_tail_L) / n_time
 
     return S_star
-
 
 def optimize_nash_product(
     price_G: np.ndarray,

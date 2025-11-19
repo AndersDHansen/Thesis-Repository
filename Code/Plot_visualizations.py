@@ -161,9 +161,12 @@ def main():
     tau_L = 0.5  # Asymmetry of power between load generator [0,1]
     tau_G = 1-tau_L  # Asymmetry of power between generation provider [0,1] - 1-tau_L
     Barter = False  # Whether to relax the problem (Mc Cormick's relaxation)
+    d_G = 0
+    d_L = 0
     contract_type = "Baseload" # Either "Baseload" or "PAP"
     monte_price = False  # Whether to use Monte Carlo price scenarios
     fixed_A_G=0.5 # Fixed at middle value for plotting purposes
+    Discount = True  # Whether to apply discounting to future cash flows
     # Elasticity-vs-risk tornado configuration
     # Choose which modes to render: any of ['A_G', 'A_L']
     elasticity_vs_risk_modes = ['A_G', 'A_L']
@@ -179,7 +182,10 @@ def main():
         A_L=A_L,
         tau_L=tau_L,
         tau_G=tau_G,
+        d_G=d_G,
+        d_L=d_L,
         Barter=Barter,
+        Discount=Discount,
         contract_type=contract_type
        
     )    # InputData object is now created in load_data()    # Define risk aversion parameters for both objective functions
@@ -351,18 +357,21 @@ def main():
     # Generate plots
     # Boxplot of earnings
 
-    presentation_boxplot_name= f"presentation_earnings_boxplot_AG={fixed_A_G}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
-    re_df = sensitivity_results.get('risk_earnings_sensitivity')
-    if isinstance(re_df, pd.DataFrame) and not re_df.empty:
-        plotter._risk_plot_earnings_boxplot( fixed_A_G,  A_L_to_plot=params['A_L_values'].tolist(),filename=os.path.join(plots_folder, presentation_boxplot_name))
+    #presentation_boxplot_name= f"presentation_earnings_boxplot_AG={fixed_A_G}_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+    #re_df = sensitivity_results.get('risk_earnings_sensitivity')
+    #if isinstance(re_df, pd.DataFrame) and not re_df.empty:
+    #    plotter._risk_plot_earnings_boxplot( fixed_A_G,  A_L_to_plot=params['A_L_values'].tolist(),filename=os.path.join(plots_folder, presentation_boxplot_name))
 
+    #presentation_risk_name = f"presentation_risk_sensitivity_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
+    #if sensitivity_results.get('risk_sensitivity') is not None:
+    #    plotter._plot_sensitivity_results_heatmap('risk',filename=os.path.join(plots_folder, presentation_risk_name))
+
+    presentation_bias_name = f"presentation_bias_sensitivity_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
     presentation_risk_name = f"presentation_risk_sensitivity_{contract_type}_{opt_time_horizon}_{num_scenarios}.png"
-    if sensitivity_results.get('risk_sensitivity') is not None:
-        plotter._plot_sensitivity_results_heatmap('risk',filename=os.path.join(plots_folder, presentation_risk_name))
 
-    
+    plotter._plot_sensitivity_results_heatmap('price_bias',filename=os.path.join(plots_folder, presentation_bias_name))
+    plotter._plot_sensitivity_results_heatmap('risk',filename=os.path.join(plots_folder, presentation_risk_name))
 
-    
 
     bias_risk_els_df = sensitivity_results.get('bias_vs_risk_elasticity_sensitivity')
     if isinstance(bias_risk_els_df, pd.DataFrame) and not bias_risk_els_df.empty:

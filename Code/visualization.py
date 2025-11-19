@@ -373,16 +373,16 @@ class Plotting_Class:
                 'title': 'Price Bias Sensitivity on Strike Price and Contract Amount',
                 'index_col': 'KL_Factor',
                 'columns_col': 'KG_Factor',
-                'xlabel': 'Generator Bias Factor (%)',
-                'ylabel': 'Load Bias Factor (%)'
+                'xlabel': 'Seller Bias Factor (%)',
+                'ylabel': 'Buyer Bias Factor (%)'
             },
             'production_bias': {
                 'df': self.production_bias_sensitivity_df,
                 'title': 'Production Bias Sensitivity on Strike Price and Contract Amount',
                 'index_col': 'KL_Factor',
                 'columns_col': 'KG_Factor',
-                'xlabel': 'Generator Bias Factor (%)',
-                'ylabel': 'Load Bias Factor (%)'
+                'xlabel': 'Seller Bias Factor (%)',
+                'ylabel': 'Buyer Bias Factor (%)'
             }
         }
         
@@ -396,11 +396,16 @@ class Plotting_Class:
         
         # Prepare data
         results = results_df.copy()
-        results = results[results['A_L'].isin([0.1, 0.5, 0.9])]  # Add this line
-        results = results[results['A_G'].isin([0.1, 0.5, 0.9])]  # Add this line
+        if sensitivity_type =="risk":
+            results = results[results['A_L'].isin([0.1, 0.5, 0.9])]  # Add this line
+            results = results[results['A_G'].isin([0.1, 0.5, 0.9])]  # Add this line
+
+        if sensitivity_type == "price_bias" or sensitivity_type == "production_bias":
+            results = results[results['KL_Factor'].isin([-0.05, 0.00, 0.05])]  # Add this line
+            results = results[results['KG_Factor'].isin([-0.05, 0.00, 0.05])]  # Add this line
+
         results['ContractAmount'] = results['ContractAmount'].round(2)
         
-        results
 
         is_pap = self.cm_data.contract_type == "PAP"
         has_gamma = 'Gamma' in results.columns
@@ -417,9 +422,9 @@ class Plotting_Class:
         fig, axes = plt.subplots(1, 2, figsize=(12, 5))
         axes = axes.flatten()
         if sensitivity_type == "bias":
-            fig.suptitle(f'{self.cm_data.contract_type}: {cfg["title"]}, $A_S$={self.cm_data.A_G},$A_B$={self.cm_data.A_L}', fontsize=self.suptitlesize)
+            fig.suptitle(f'{cfg["title"]}, $A_S$={self.cm_data.A_G},$A_B$={self.cm_data.A_L}', fontsize=self.suptitlesize)
         else:
-            fig.suptitle(f'{self.cm_data.contract_type}: {cfg["title"]}', fontsize=self.suptitlesize)
+            fig.suptitle(f'{cfg["title"]}', fontsize=self.suptitlesize)
 
         for i, (metric, unit, title) in enumerate(zip(metrics, units, titles)):
             ax = axes[i]

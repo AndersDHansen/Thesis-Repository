@@ -25,8 +25,8 @@ class Barter_Set:
             self.BS_strike_min =  self.data.SR_star_new  
             self.BS_strike_max =  self.data.SU_star_new 
         else:
-            self.BS_strike_min =  self.data.SR_star_new - 5*1e-3 
-            self.BS_strike_max =  self.data.SU_star_new + 5*1e-3
+            self.BS_strike_min =  84.39 *1e-3 
+            self.BS_strike_max =  93.83*1e-3
             #self.BS_strike_min = self.data.strikeprice_min
             #self.BS_strike_max = self.data.strikeprice_max
         print(f"{self.BS_strike_min*1e3:.4f} EUR/MWh")
@@ -508,7 +508,6 @@ class Barter_Set:
         V_1_Low= np.zeros((self.n,2))
         V_2_High = np.zeros((self.n,2))
 
-        V_CP= np.zeros((self.n,2))
       
         if self.data.contract_type == "PAP":
             # For PAP, we need to calculate the contract amount as a percentage of production
@@ -529,6 +528,7 @@ class Barter_Set:
             V_2_High[i,0] = self.Utility_G(self.BS_strike_max , M_space[i]) - self.data.Zeta_G
             V_2_High[i,1] = self.Utility_L(self.BS_strike_max , M_space[i]) - self.data.Zeta_L
 
+
             if self.results.optimal:
                 u_opt_curve[i,0] = self.Utility_G(self.results.strike_price*1e-3, M_space[i]) - self.data.Zeta_G
                 u_opt_curve[i,1] = self.Utility_L(self.results.strike_price*1e-3, M_space[i]) - self.data.Zeta_L
@@ -548,7 +548,7 @@ class Barter_Set:
         # Calculate the slope of the utility curves     
         #print(M_SR, M_SU)
         #self.plot_utility_cvar_vs_M(strike_price='min')
-        #self.plot_utility_cvar_vs_M(strike_price='max')
+       #self.plot_utility_cvar_vs_M(strike_price='max')
         #self.plot_utility_contours()
         
         #Calculate Utlity for the optimal contract amount        
@@ -557,7 +557,10 @@ class Barter_Set:
         UG_High_Mopt = self.Utility_G(self.BS_strike_max, M_SU) - self.data.Zeta_G
         UL_High_Mopt = self.Utility_L(self.BS_strike_max, M_SU) - self.data.Zeta_L
 
-
+        UG_Low_Mopt_test = self.Utility_G(self.BS_strike_min, self.results.contract_amount) - self.data.Zeta_G
+        UL_Low_Mopt_test = self.Utility_L(self.BS_strike_min, self.results.contract_amount) - self.data.Zeta_L
+        UG_High_Mopt_test = self.Utility_G(self.BS_strike_max, self.results.contract_amount) - self.data.Zeta_G
+        UL_High_Mopt_test = self.Utility_L(self.BS_strike_max, self.results.contract_amount) - self.data.Zeta_L
 
 
         # Calculate utility for UL
@@ -609,6 +612,10 @@ class Barter_Set:
                     color='red', fontsize=10)
         """
         # Plot the points
+
+        plt.scatter(UG_Low_Mopt_test, UL_Low_Mopt_test, color='green', marker='o', s=150, label=f'V1 M* = ({M_SR /8760*1e3:.2f} MWh)')
+        plt.scatter(UG_High_Mopt_test, UL_High_Mopt_test, color='green', marker='*', s=150, label=f'V2 M* = ({M_SU/8760*1e3:.2f} MWh)')
+
         
         if cond_MR==True:
             # Plot Optimal Contract Amount Point with fixed price SR and SU
