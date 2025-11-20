@@ -25,8 +25,8 @@ class Barter_Set:
             self.BS_strike_min =  self.data.SR_star_new  
             self.BS_strike_max =  self.data.SU_star_new 
         else:
-            self.BS_strike_min =  84.39 *1e-3 
-            self.BS_strike_max =  93.83*1e-3
+            self.BS_strike_min =   self.data.SR_star_new   
+            self.BS_strike_max =   self.data.SR_star_new  
             #self.BS_strike_min = self.data.strikeprice_min
             #self.BS_strike_max = self.data.strikeprice_max
         print(f"{self.BS_strike_min*1e3:.4f} EUR/MWh")
@@ -547,8 +547,8 @@ class Barter_Set:
         cond_MR,cond_MU,slope_1, slope_2, M_SR,M_SU, first_index_v1,first_index_v2= self.calculate_utility_derivative(M_space,V_1_Low, V_2_High)
         # Calculate the slope of the utility curves     
         #print(M_SR, M_SU)
-        #self.plot_utility_cvar_vs_M(strike_price='min')
-       #self.plot_utility_cvar_vs_M(strike_price='max')
+        self.plot_utility_cvar_vs_M(strike_price='min')
+        self.plot_utility_cvar_vs_M(strike_price='max')
         #self.plot_utility_contours()
         
         #Calculate Utlity for the optimal contract amount        
@@ -977,9 +977,55 @@ class Barter_Set:
         dcvar_G = np.gradient(UG_cvar, M_space, edge_order= 1)
         dcvar_L = np.gradient(UL_cvar, M_space,edge_order= 1)
 
-          # Second derivatives
+          # Second derivatives of CVaR
         d2cvar_G = np.gradient(dcvar_G, M_space, edge_order=1)
         d2cvar_L = np.gradient(dcvar_L, M_space,edge_order=1)
+
+        # Derivative of Utility
+        dU_G = np.gradient(UG_total, M_space, edge_order=1)
+        dU_L = np.gradient(UL_total, M_space, edge_order=1)
+
+        # Secod derivative of Utility
+        d2U_G = np.gradient(dU_G, M_space, edge_order=1)
+        d2U_L = np.gradient(dU_L, M_space, edge_order=1)
+
+        fig,axs = plt.subplots(2,2, figsize=(12,10))
+
+        axs[0,0].plot(M_space, dU_G, label='dU/dM G', color='blue')
+        axs[0,0].axhline(y=0, color='r', linestyle='--')
+        axs[0,0].set_title('First Derivative of Utility of G')  
+        axs[0,0].set_xlabel('Contract Amount (M)')
+        axs[0,0].set_ylabel('dU/dM')
+        axs[0,0].grid(True)
+        axs[0,0].legend()
+
+        axs[0,1].plot(M_space, dU_L, label='dU/dM L', color='red')
+        axs[0,1].axhline(y=0, color='r', linestyle='--')
+        axs[0,1].set_title('First Derivative of Utility of L')  
+        axs[0,1].set_xlabel('Contract Amount (M)')
+        axs[0,1].set_ylabel('dU/dM')
+        axs[0,1].grid(True)
+        axs[0,1].legend()
+
+        axs[1,0].plot(M_space, d2U_G, label='d2U/dM2 G', color='blue')
+        axs[1,0].axhline(y=0, color='r', linestyle='--')
+        axs[1,0].set_title('Second Derivative of Utility of G') 
+        axs[1,0].set_xlabel('Contract Amount (M)')
+        axs[1,0].set_ylabel('d²U/dM²')
+        axs[1,0].grid(True)
+        axs[1,0].legend()
+
+        axs[1,1].plot(M_space, d2U_L, label='d2U/dM2 L', color='red')
+        axs[1,1].axhline(y=0, color='r', linestyle='--')
+        axs[1,1].set_title('Second Derivative of Utility of L')
+        axs[1,1].set_xlabel('Contract Amount (M)')
+        axs[1,1].set_ylabel('d²U/dM²')
+        axs[1,1].grid(True)
+        axs[1,1].legend()
+
+        plt.suptitle(f'Utility Sensitivity Analysis for {title_suffix}')
+        plt.tight_layout()
+        plt.show()
 
         # Plotting
         fig, axs = plt.subplots(1, 2, figsize=(14, 5))
@@ -1059,6 +1105,10 @@ class Barter_Set:
         plt.suptitle(f'CVaR Sensitivity Analysis for {title_suffix}')
         plt.tight_layout()
         plt.show()
+
+        plt.close('all')
+
+
 
     
     def plot_multiple_barter_sets(self, AG_values, AL_values):
