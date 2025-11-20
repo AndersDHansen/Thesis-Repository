@@ -25,8 +25,8 @@ class Barter_Set:
             self.BS_strike_min =  self.data.SR_star_new  
             self.BS_strike_max =  self.data.SU_star_new 
         else:
-            self.BS_strike_min =   self.data.SR_star_new   
-            self.BS_strike_max =   self.data.SR_star_new  
+            self.BS_strike_min =   self.data.SR_star_new-2*1e-3   
+            self.BS_strike_max =   self.data.SU_star_new+2*1e-3 
             #self.BS_strike_min = self.data.strikeprice_min
             #self.BS_strike_max = self.data.strikeprice_max
         print(f"{self.BS_strike_min*1e3:.4f} EUR/MWh")
@@ -547,8 +547,8 @@ class Barter_Set:
         cond_MR,cond_MU,slope_1, slope_2, M_SR,M_SU, first_index_v1,first_index_v2= self.calculate_utility_derivative(M_space,V_1_Low, V_2_High)
         # Calculate the slope of the utility curves     
         #print(M_SR, M_SU)
-        self.plot_utility_cvar_vs_M(strike_price='min')
-        self.plot_utility_cvar_vs_M(strike_price='max')
+        #self.plot_utility_cvar_vs_M(strike_price='min')
+        #self.plot_utility_cvar_vs_M(strike_price='max')
         #self.plot_utility_contours()
         
         #Calculate Utlity for the optimal contract amount        
