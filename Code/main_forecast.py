@@ -285,7 +285,7 @@ def main():      # Define simulation parameters
 
 
 
-    tau_L = 0  # Asymmetry of power between load generator [0,1]
+    tau_L = 0.5  # Asymmetry of power between load generator [0,1]
     tau_G = 1-tau_L  # Asymmetry of power between generation provider [0,1] - 1-tau_L
     contract_type = "Baseload" # Either "Baseload" or "PAP"
     # Choose which analyses to run; leave empty to run all when sensitivity=True

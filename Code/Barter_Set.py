@@ -613,9 +613,7 @@ class Barter_Set:
         """
         # Plot the points
 
-        plt.scatter(UG_Low_Mopt_test, UL_Low_Mopt_test, color='green', marker='o', s=150, label=f'V1 M* = ({M_SR /8760*1e3:.2f} MWh)')
-        plt.scatter(UG_High_Mopt_test, UL_High_Mopt_test, color='green', marker='*', s=150, label=f'V2 M* = ({M_SU/8760*1e3:.2f} MWh)')
-
+     
         
         if cond_MR==True:
             # Plot Optimal Contract Amount Point with fixed price SR and SU
